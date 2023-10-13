@@ -52,7 +52,7 @@ SECTION MBR vstart=0x7c00
     ;eax、bx、cx为call要传送的参数(寄存器传参)
     mov eax, LOADER_START_SECTOR        ;起始扇区LBA地址(扇区号) — 待读入的扇区起始地址
     mov bx, LOADER_BASE_ADDR            ;将loader写入内存的地址
-    mov cx, 1                           ;待读入的扇区数
+    mov cx, 4                           ;待读入的扇区数(因为loader.bin超过了512字节，为了避免将来出错，直接改成读入4扇区)
     call rd_disk_m_16                   ;以下读取程序的起始部分(一个扇区)
 
     jmp LOADER_BASE_ADDR
