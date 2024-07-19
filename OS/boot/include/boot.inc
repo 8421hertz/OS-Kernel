@@ -24,7 +24,7 @@ DESC_S_CODE	equ		1_000000000000b
 DESC_S_DATA	equ		DESC_S_CODE
 DESC_S_SYS	equ		0_000000000000b
 ;type用于指定本描述符的类型
-;（x=1,c=0,w=10,a=0：代码段为可执行、非一致性、不可读、已访问位a清0）
+;（x=1,c=0,r=0,a=0：代码段为可执行、非一致性、不可读、已访问位a清0）
 DESC_TYPE_CODE	equ		1000_00000000b
 ; (x=0,e=0,w=1,a=0)：数据段不可执行、向上扩展、可读写、已访问位a清0
 DESC_TYPE_DATA	equ		0010_00000000b
