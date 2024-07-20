@@ -130,7 +130,7 @@ section loader vstart=LOADER_BASE_ADDR
     shl edx, 16                 ;把dx移到高16位
     and eax, 0x0000FFFF         
     or edx, eax                 ;把积的低16位组合刀edx，为32位的积
-    and edx, 0x100000           ;0x88子功能只会返回1MB以上的内存(实际大小还需要加上1MB)
+    add edx, 0x100000           ;0x88子功能只会返回1MB以上的内存(实际大小还需要加上1MB)
 
 .mem_get_ok:
     mov [total_mem_bytes], edx  ;将内存换位byte单位后存入total_mem_bytes22222
