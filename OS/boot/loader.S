@@ -38,7 +38,7 @@ section loader vstart=LOADER_BASE_ADDR
     gdt_ptr  dw  GDT_LIMIT
              dd  GDT_BASE
     
-;人工对齐：total_mem_bytes(4) + gdt_ptr(6) + ards_buf(244) + ards_nr(2)，共256字节
+    ;人工对齐：total_mem_bytes(4) + gdt_ptr(6) + ards_buf(244) + ards_nr(2)，共256字节
     ;ards_buf是提前定义的缓冲区，用于存储BIOS 0x15中断0xe820子功能返回的ARDS结构 —— 每个ARDS结构大小为20字节
     ards_buf times 244 db 0         ;这244字节是凑出来的(实际上用于存储ARDS的空间共200字节)，无实际意义(为了对齐代码凑够0x300)
     ards_nr dw 0                    ;用于记录ARDS结构体数量
@@ -180,6 +180,8 @@ section loader vstart=LOADER_BASE_ADDR
     mov cr0, eax
 
     jmp dword SELECTOR_CODE:p_mode_start    ;刷新流水线 —— 当前处于16位保护模式下，为了能使用32位偏移地址，所以添加了伪指令dword
+                                            ;这将导致之前做的预测失效，从而起到了刷新的作用
+                                            ;出错则挂起
 
 
 [bits 32]
@@ -192,7 +194,112 @@ p_mode_start:
     mov ax, SELECTOR_VIDEO
     mov gs, ax
 
+    ;创建页目录及页表并初始化页内存位图
+    call setup_page
+
+;------------------------------- 重启加载GDT做准备 -------------------------------
+
+    ;要将描述符表地址及偏移量写入内存gdt_ptr，一会用新地址重新加载
+    sgdt [gdt_ptr]                  ;存储到原来gdt所有的位置        
+
+    ;因为我们在页表中会将内核放置到3GB以上的地址，我们也把GDT放在内核的地址空间，
+    ;在此通过sgdt指令，将GDT的起始地址和偏移量信息dump（像倒水一样）出来，依然存放到gdt_ptr处
+    ;一会儿待条件成熟时，我们再从地址gdt_ptr处重新加载GDT。
+
+    ;将gdt描述符中视频段描述符中的段基址+0xc0000000
+    mov ebx, [gdt_ptr + 2]          ;gdt的基址
+    or dword [ebx + 0x18 + 4], 0xc0000000       ;视频段是第3个描述符，每个描述符是8字节，故0x18
+                                                ;段描述符的最高4字节的最高位是段基址31~24位
+
+    ;将gdt的基址加上0xc0000000，使其成为内核所在的高地址
+    add dword [gdt_ptr + 2], 0xc0000000
+
+    add esp, 0xc0000000             ;将栈指针同样映射到内核地址
+
+    ;把页目录表地址赋给cr3
+    mov eax, PAGE_DIR_TABLE_POS
+    mov cr3, eax
+
+    ;打开cr0的pg位（第31位）
+    mov eax, cr0
+    or eax, 0x80000000
+    mov cr0, eax
+
+    lgdt [gdt_ptr]
+
     mov byte [gs:160], 'p'          ;往显存第80个字符的位置写入字符'P' —— 默认的显示模式是80*25，即每行都是80个字符(0~79)，每个字符占两字节，故传入偏移地址是80*2=160(显存中每个字符的低字节是字符的ASCII码，高字节是属性位)
+
+    jmp $
+
+
+;-------------------------- 创建页目录及页表并初始化页内存位图 --------------------------
+setup_page:
+    ;先把页目录占用的空间逐字节清0（每个页目录项占用4B，1000个页目录项占用4K的空间）
+    mov ecx, 4096
+    mov esi, 0
+.clear_page_dir:
+    mov byte [PAGE_DIR_TABLE_POS + esi], 0
+    inc esi
+    loop .clear_page_dir
+;开始创建页目录项（PDE）
+.create_pde:
+    mov eax, PAGE_DIR_TABLE_POS     ;属性为7
+    add eax, 0x1000                 ;eax为页目录项的结构: ① 31~12位为页表的物理地址的前20位，后12位都是0
+                                    ;                   ② 0~11位为页目录项的属性
+    mov ebx, eax                    ;此处为ebx赋值，是为.create_pte做准备，ebx是基址
+
+    ;将 0号和768号页目录项都指向第1个页表（0x101000）
+    or eax, PG_US_U | PG_RW_W | PG_P
+    mov [PAGE_DIR_TABLE_POS + 0x00], eax        ;1号页目录项指向1号页表
+    mov [PAGE_DIR_TABLE_POS + 0xc00], eax       ;768号页目录项指向0号页表
+
+    sub eax, 0x1000
+    mov [PAGE_DIR_TABLE_POS + 4092], eax        ;使最后一个页目项指向页目录表的地址（1024*4B-4=4092）
+
+    ;下面创建页表项（PTE）
+    mov ecx, 256                    ;1M低端内存 / 每页大小4k = 256个物理页，所以0和769页目录项对应的页表只需要创建256个页表项即可
+    mov esi, 0
+    mov edx, PG_US_U | PG_RW_W | PG_P           ;属性为7
+.create_pte:
+    mov [ebx+esi*4], edx            ;此时的ebx是0x101000（0号页表中0号页表项的地址）
+                                    ;      edx是第0号表项中的物理页的首地址（每一个物理页占4K），对应的地址为0~4095（0xFFF）
+    add edx, 4096                   ;1号页表项中的物理页的首地址（PDE和PTE的结构中，低12位是属性位，但是分页机制会自动将地址的后12位置为0）
+    inc esi                         ;用于定位到下一个页表项的位置
+    loop .create_pte
+
+    ;创建内核其它页表的PDE
+    mov eax, PAGE_DIR_TABLE_POS
+    add eax, 0x2000                 ;此时eax为第2个页表物理位置
+    or eax, PG_US_U | PG_RW_W | PG_P
+    mov ebx, PAGE_DIR_TABLE_POS
+    mov ecx, 254                    ;范围为第769~1022的所有目录项数量（768号目录项指向0号页表；最后一个页目录项1023号指向页目录表）
+                                    ;为了实现内核完全共享，需要把 768~1022 号页目录项都映射到低端（用于应对内核申请大量空间的情况）
+    mov esi, 769                    ;第769个页目录项
+.create_kernel_pde:              
+    mov [ebx+esi*4], eax            ;将1号页表项物理地址放入769号页目录项中
+    inc esi                         ;定位到下一个页目录项的地址
+    add eax, 0x1000                 ;定位到下一个页表的地址
+    loop .create_kernel_pde
+
+    ret
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     jmp $                           ;通过死循环，使程序悬停在此
 
