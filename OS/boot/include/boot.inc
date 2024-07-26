@@ -64,3 +64,12 @@ PG_US_S		equ		000b	;超级用户位
 PG_US_U		equ		100b	;普通用户位（用于限制某些特权级的任务对此内存空间的访问，无论存放的是指令，还是普通数据）
                                 ;PDE或PTE的US位为1：说明处理器允许4个特权级的任务都可以访问此PDE或PTE指向的内存
                                 ;PDE或PTE的US位为0：说明处理器允许除特权级3外的其他特权级任务访问此PDE过PTE指向的内存
+
+
+KERNEL_START_SECTOR equ 0x9	 ;kernel.bin所在的0x9逻辑扇区号
+KERNEL_BIN_BASE_ADDR equ 0x70000  ;kernel.bin被加载到的物理地址，该处的开头是文件头elf header
+
+PT_NULL	 equ  0 ;struct Elf32_Phdr中的p_type中的PT_NULL类型，表示此program header是空段类型
+
+;用于访问测试
+KERNEL_ENTRY_POINT	equ	 0xc0001500

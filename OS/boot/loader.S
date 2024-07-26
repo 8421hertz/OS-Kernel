@@ -194,6 +194,17 @@ p_mode_start:
     mov ax, SELECTOR_VIDEO
     mov gs, ax
 
+;------------------------------- 加载Kernel -------------------------------
+;rd_disk_m_32函数的参数：
+;   ① eax：kernel内核所在的扇区号
+;   ② ebx：内核从磁盘读出后，写入到内存的地址
+;   ③ ecx：读入的扇区数
+    mov eax, KERNEL_START_SECTOR            ;kernel所在的扇区号0x9
+    mov ebx, KERNEL_BIN_BASE_ADDR           ;从磁盘读出后，写入到内存地址（0x70000）
+    mov ecx, 200                            ;读入的扇区数
+
+    call rd_disk_m_32       ;读取硬盘（将硬盘中的数据读入内存中），此函数所有的寄存器都变成32位的
+    
     ;创建页目录及页表并初始化页内存位图
     call setup_page
 
@@ -227,9 +238,68 @@ p_mode_start:
 
     lgdt [gdt_ptr]
 
-    mov byte [gs:160], 'p'          ;往显存第80个字符的位置写入字符'P' —— 默认的显示模式是80*25，即每行都是80个字符(0~79)，每个字符占两字节，故传入偏移地址是80*2=160(显存中每个字符的低字节是字符的ASCII码，高字节是属性位)
 
-    jmp $
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;  此时不刷新流水线也没问题  ;;;;;;;;;;;;;;;;;;;;;;;;
+;由于一直处在32位下（不需要 “显示的清空流水线” ）,原则上不需要强制刷新，经过实际测试没有以下这两句也没问题.
+;但以防万一，还是加上啦，免得将来出来莫句奇妙的问题.
+    jmp SELECTOR_CODE:enter_kernel
+enter_kernel:
+    call kernel_init
+    mov esp, 0xc009f000
+    jmp KERNEL_ENTRY_POINT                    ;用地址0x1500进行访问测试
+
+;-----------------   将kernel.bin中的segment拷贝到编译的地址   -----------------
+kernel_init:                ;函数kernel_init的作用：将kernel.bin中的段（segment）拷贝到各段自己被编译的虚拟地址处，将这些段单独提取到内存中，这就是平时所说的内存中的程序映像。
+                            ;kernel_init的原理：分析程序中的每个段（segment），如果段类型不是PT_NULL（空程序类型），就将该段拷贝到编译的地址中。
+    xor ebx, ebx            ;ebx记录程序头表地址
+    xor ecx, ecx            ;cx记录程序头表中的program header程序头数量
+    xor edx, edx            ;dx记录program header程序表尺寸，即e_phentsize（遍历段的方式是：指向第一个程序头后，每次增加一个段头的大小，该属性位于偏移程序开头42字节处，e_phentsize）
+
+    mov dx, [KERNEL_BIN_BASE_ADDR + 42]     ;e_phentsize
+    mov ebx, [KERNEL_BIN_BASE_ADDR + 28]    ;偏移文件开始部分28字节的地方是e_phoff,表示第1 个program header在文件中的偏移量
+    add ebx, KERNEL_BIN_BASE_ADDR          ;此时ebx作为程序头表的基址，用它来遍历每一个段（此时ebx指向程序中第1个program header的物理地址）
+    mov cx, [KERNEL_BIN_BASE_ADDR + 44]     ;偏移文件开始部分28字节的地方是e_phnum，表示有几个program header
+
+.each_segment:
+    cmp byte [ebx + 0], PT_NULL             ;若p_type等于PT_NULL，说明此program header未使用
+    je .PT_NULL
+
+    ;为函数memcpy压入参数（参数是从右往左依然压入），函数原型类似于 memcpy(dst, src, size）
+    push dword [ebx + 16]                   ;———— 压入函数memcpy的第三个参数：size段大小
+                                                ;program header中偏移16字节的地方是p_filesz（本段在文件中的大小） 
+    mov eax, [ebx + 4]                      ;距程序头偏移量为4字节的地方是p_offset（本段在文件内的起始偏移字节） 
+    add eax, KERNEL_BIN_BASE_ADDR           ;加上kernel.bin被加载到的物理地址，使eax为该段的物理地址
+    push eax                                ;———— 压入函数memcpy的第二个参数：src源地址
+    push dword [ebx + 8]                    ;———— 压入函数memcpy的第一个参数：dst目的地址
+                                                ;偏移程序头8字节的位置是p_vaddr，这就是目的地址
+    call mem_cpy                        ;调用mem_cpy完成段复制
+    add esp, 12                         ;清理栈中压入的三个参数
+
+.PT_NULL:
+    add ebx, edx                            ;edx为program header大小（e_phentsize），使ebx指向下一个program header
+    loop .each_segment
+    ret
+
+;-------------------- 逐字节拷贝 mem_cpy(dst, src, size) --------------------
+;输入: 栈中三个参数(dst, src, size)
+;输出: 无
+;---------------------------------------------------------------------------
+mem_cpy:
+    cld                                 ;将eflags寄存器中的方向标志位DF置为0
+    push ebp                            ;我们访问栈中的参数是基于ebp的，需要现将ebp备份
+    mov ebp, esp
+    push ecx                            ;rep指令用到了ecx，但是ecx对于外层段的循环还得用，需要先入栈备份
+    mov edi, [ebp + 8]          ;dst
+    mov esi, [ebp + 12]         ;src
+    mov ecx, [ebp + 16]         ;size
+    rep movsb
+
+    ;恢复环境
+    pop ecx
+    pop ebp
+    ret
+
+
 
 
 ;-------------------------- 创建页目录及页表并初始化页内存位图 --------------------------
@@ -262,7 +332,8 @@ setup_page:
     mov edx, PG_US_U | PG_RW_W | PG_P           ;属性为7
 .create_pte:
     mov [ebx+esi*4], edx            ;此时的ebx是0x101000（0号页表中0号页表项的地址）
-                                    ;      edx是第0号表项中的物理页的首地址（每一个物理页占4K），对应的地址为0~4095（0xFFF）
+                                    ;      edx是第0号表项中的物理页的首地址（每一个物理页占4K），对应的地址为0~4095（0xFFF）。
+                                    ;       低端1MB的虚拟地址会对应低端1MB的物理地址
     add edx, 4096                   ;1号页表项中的物理页的首地址（PDE和PTE的结构中，低12位是属性位，但是分页机制会自动将地址的后12位置为0）
     inc esi                         ;用于定位到下一个页表项的位置
     loop .create_pte
@@ -283,6 +354,96 @@ setup_page:
 
     ret
 
+;-------------------------------------------------------------------------------
+			   ;功能:读取硬盘n个扇区
+rd_disk_m_32:	   
+;-------------------------------------------------------------------------------
+							 ; eax=LBA起始逻辑扇区号
+							 ; ebx=将数据写入的内存地址
+							 ; ecx=读入的扇区数
+
+    mov esi, eax            ;备份扇区号到esi
+    mov di, cx              ;备份要读入的扇区数到di
+
+;读写硬盘:
+;第1步：设置要读取的扇区数
+      mov dx,0x1f2
+      mov al,cl
+      out dx,al            ;读取的扇区数
+
+      mov eax,esi	   ;恢复ax
+
+;第2步：设置起始LBA扇区号
+
+      ;LBA地址7~0位写入端口0x1f3
+      mov dx,0x1f3                       
+      out dx,al                          
+
+      ;LBA地址15~8位写入端口0x1f4
+      mov cl,8
+      shr eax,cl
+      mov dx,0x1f4
+      out dx,al
+
+      ;LBA地址23~16位写入端口0x1f5
+      shr eax,cl
+      mov dx,0x1f5
+      out dx,al
+
+      shr eax,cl
+      and al,0x0f	   ;lba第24~27位
+      or al,0xe0	   ; 设置7～4位为1110,表示lba模式
+      mov dx,0x1f6
+      out dx,al
+
+;第3步：向0x1f7端口写入读命令，0x20 
+      mov dx,0x1f7
+      mov al,0x20                        
+      out dx,al
+
+;;;;;;; 至此,硬盘控制器便从指定的lba地址(eax)处,读出连续的cx个扇区,下面检查硬盘状态,不忙就能把这cx个扇区的数据读出来
+
+;第4步：检测硬盘状态
+  .not_ready:		   ;测试0x1f7端口(status寄存器)的的BSY位
+      ;同一端口,写时表示写入命令字,读时表示读入硬盘状态
+      nop
+      in al,dx
+      and al,0x88	   ;第4位为1表示硬盘控制器已准备好数据传输,第7位为1表示硬盘忙
+      cmp al,0x08
+      jnz .not_ready	   ;若未准备好,继续等。
+
+;第5步：从0x1f0端口读数据
+      mov ax, di	   ;以下从硬盘端口读数据用insw指令更快捷,不过尽可能多的演示命令使用,
+			   ;在此先用这种方法,在后面内容会用到insw和outsw等
+
+      mov dx, 256	   ;di为要读取的扇区数,一个扇区有512字节,每次读入一个字,共需di*512/2次,所以di*256
+      mul dx
+      mov cx, ax	   
+      mov dx, 0x1f0
+  .go_on_read:
+      in ax,dx		
+      mov [ebx], ax
+      add ebx, 2
+			  ; 由于在实模式下偏移地址为16位,所以用bx只会访问到0~FFFFh的偏移。
+			  ; loader的栈指针为0x900,bx为指向的数据输出缓冲区,且为16位，
+			  ; 超过0xffff后,bx部分会从0开始,所以当要读取的扇区数过大,待写入的地址超过bx的范围时，
+			  ; 从硬盘上读出的数据会把0x0000~0xffff的覆盖，
+			  ; 造成栈被破坏,所以ret返回时,返回地址被破坏了,已经不是之前正确的地址,
+			  ; 故程序出会错,不知道会跑到哪里去。
+			  ; 所以改为ebx代替bx指向缓冲区,这样生成的机器码前面会有0x66和0x67来反转。
+			  ; 0X66用于反转默认的操作数大小! 0X67用于反转默认的寻址方式.
+			  ; cpu处于16位模式时,会理所当然的认为操作数和寻址都是16位,处于32位模式时,
+			  ; 也会认为要执行的指令是32位.
+			  ; 当我们在其中任意模式下用了另外模式的寻址方式或操作数大小(姑且认为16位模式用16位字节操作数，
+			  ; 32位模式下用32字节的操作数)时,编译器会在指令前帮我们加上0x66或0x67，
+			  ; 临时改变当前cpu模式到另外的模式下.
+			  ; 假设当前运行在16位模式,遇到0X66时,操作数大小变为32位.
+			  ; 假设当前运行在32位模式,遇到0X66时,操作数大小变为16位.
+			  ; 假设当前运行在16位模式,遇到0X67时,寻址方式变为32位寻址
+			  ; 假设当前运行在32位模式,遇到0X67时,寻址方式变为16位寻址.
+
+      loop .go_on_read
+      ret
 
 
 
@@ -291,17 +452,6 @@ setup_page:
 
 
 
-
-
-
-
-
-
-
-
-
-
-    jmp $                           ;通过死循环，使程序悬停在此
 
 
 
