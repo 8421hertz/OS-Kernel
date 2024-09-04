@@ -2,6 +2,8 @@
 #include "stdint.h"
 #include "global.h"
 #include "io.h"
+#include "interrupt.h"
+#include "print.h"
 
 #define IDT_DESC_CNT 0x21 // 目前总共支持的中断数 ( 33 个中断处理程序 )
 
@@ -128,8 +130,10 @@ void idt_init()
     idt_desc_init(); // 初始化中断描述符表 IDT
     pic_init();      // 初始化 8259A
 
-    /* 加载 IDT */
-    uint64_t idt_operand = ((sizeof(idt) - 1) | ((uint64_t)(uint32_t)idt << 16));
+    /* 加载 IDT，开启中断 */
+    uint64_t idt_operand = ((sizeof(idt) - 1) | ((uint64_t)(uint32_t)idt << 16));   // (uint32_t)idt：先将指针地址强制转换为 32 位的无符号整数
+                                                                                    // (uint64_t)(uint32_t)idt：将 32 位的地址再转换为 64 位的无符号整数 uint64_t( 这一步是为后续的位移操作提供足够的空间。)，转换后，高 32 位是 0 ，低 32 位存储的是 idt 的 32 位地址
+                                                                                    // <<16 ：将这个 64 位整数左移 16 位
     asm volatile("lidt %0"
                  :
                  : "m"(idt_operand));
