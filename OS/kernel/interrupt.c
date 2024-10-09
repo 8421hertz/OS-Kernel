@@ -27,6 +27,10 @@ static void make_idt_desc(struct gate_desc *p_gdesc, uint8_t attr, intr_handler 
 
 static struct gate_desc idt[IDT_DESC_CNT]; // idt 中断描述符表，本质上是一个中断门描述符数组
 
+char *intr_name[IDT_DESC_CNT]; // 中断异常名数组 ———— 用来记录每一项异常的名字 ( 这是将来在调试时用的，主要是方便咱们自己 )
+// idt_table[i] 是一个存储函数指针的数组
+intr_handler idt_table[IDT_DESC_CNT]; // 定义中断处理程序数组，在 kernel.S 中定义的 intrXXentry 只是中断处理程序的入口，最终调用的是 ide_table 中的处理程序
+
 extern intr_handler intr_entry_table[IDT_DESC_CNT]; // 声明引用定义在 kernel.S 中的中断处理函数入口地址数组
                                                     // 中断描述符地址数组 ( 仅仅表明地址，用于修饰 intr_entry_table，定义在 interrupt.h 中 )
                                                     // 中断向量号 * 8 + IDTR = 中断门描述符地址
@@ -109,6 +113,72 @@ static void idt_desc_init(void)
 }
 
 /**
+ * general_intr_handler - 通用中断处理函数，一般用在异常出现时的处理
+ *
+ * 该函数用于处理一般的中断，通常在异常情况下调用。
+ * 函数会处理特定的中断向量号，如伪中断 ( 由 IRQ7 和 IRQ15 产生 )，这些中断 ( 无法通过 IMR 寄存器屏蔽，这里的处理规则是直接通过 return 返回 ) 不需要进一步处理。
+ *      这些伪中断是硬件层面的问题，操作系统不需要进一步处理这些中断，所以处理程序直接返回，跳过任何复杂的处理步骤。这种设计避免了无谓的资源消耗和系统性能的影响。
+ *
+ * @vec_nr: 中断向量号，指定触发了哪个中断。
+ *
+ * 函数会专门检查中断向量号 0x27 和 0x2f，这些对应于伪中断 (IRQ7 和 IRQ15)。
+ * 如果中断向量号匹配 0x27 或 0x2f，则直接返回，无需进行其他操作。
+ */
+static void general_intr_handler(uint8_t vec_nr)
+{
+    if (vec_nr == 0x27 || vec_nr == 0x2f) // 0x27 和 0x2f 中断向量号对应的 IRQ7 和 IRQ15
+    {
+        return;
+    }
+
+    put_str("int vector: 0x");
+    put_int(vec_nr);
+    put_char('\n');
+}
+
+/**
+ * exception_init - 初始化异常处理程序 ( 通用的中断处理函数，一般用在异常出现时的处理 )
+ *
+ * 该函数完成了异常处理函数的注册以及为每个中断设置名称。
+ * 它将所有的 IDT 表项初始化为通用的中断处理程序，并为常见的 CPU 异常分配人类可读的名称。
+ *
+ *
+ * 在之后的处理中，实际的异常处理程序可以通过调用 register_handler 来注册。
+ */
+static void exception_init(void)
+{
+    int i;
+    for (i = 0; i < IDT_DESC_CNT; i++)
+    {
+        /* idt_table 数组中的函数是在进入中断后根据中断向量号调用的，见 kernel/kernel.S 的 call [idt_table + %1*4] */
+        idt_table[i] = general_intr_handler; // 将所有的 IDT 表项初始化为通用的中断处理程序 general_intr_handler( 地址 )
+                                             // 以后会用 register_handler 来注册具体处理函数
+        intr_name[i] = "unknown";            // 每个异常名字先统一赋值为 unknown
+    }
+
+    intr_name[0] = "#DE Divide Error";
+    intr_name[1] = "#DB Debug Exception";
+    intr_name[2] = "NMI Interrupt";
+    intr_name[3] = "#BP Breakpoint Exception";
+    intr_name[4] = "#OF Overflow Exception";
+    intr_name[5] = "#BR BOUND Range Exceeded Exception";
+    intr_name[6] = "#UD Invalid Opcode Exception";
+    intr_name[7] = "#NM Device Not Available Exception";
+    intr_name[8] = "#DF Double Fault Exception";
+    intr_name[9] = "Coprocessor Segment Overrun";
+    intr_name[10] = "#TS Invalid TSS Exception";
+    intr_name[11] = "#NP Segment Not Present";
+    intr_name[12] = "#SS Stack Fault Exception";
+    intr_name[13] = "#GP General Protection Exception";
+    intr_name[14] = "#PF Page-Fault Exception";
+    // intr_name[15] 第 15 项是 intel 保留项，未使用
+    intr_name[16] = "#MF x87 FPU Floating-Point Error";
+    intr_name[17] = "#AC Alignment Check Exception";
+    intr_name[18] = "#MC Machine-Check Exception";
+    intr_name[19] = "#XF SIMD Floating-Point Exception";
+}
+
+/**
  * @brief 完成与中断有关的所有初始化工作 ———— 中断初始化的主函数
  *
  * 该函数负责初始化中断描述符表 (IDT) 和 8259A 可编程中断控制器 (PIC)，然后将 IDT 加载到 CPU 的 IDTR 寄存器中。
@@ -127,13 +197,14 @@ static void idt_desc_init(void)
 void idt_init()
 {
     put_str("idt_init start\n");
-    idt_desc_init(); // 初始化中断描述符表 IDT
-    pic_init();      // 初始化 8259A
+    idt_desc_init();  // 初始化中断描述符表 IDT
+    exception_init(); // 异常名初始化并注册通常的中断处理函数
+    pic_init();       // 初始化 8259A
 
     /* 加载 IDT，开启中断 */
-    uint64_t idt_operand = ((sizeof(idt) - 1) | ((uint64_t)(uint32_t)idt << 16));   // (uint32_t)idt：先将指针地址强制转换为 32 位的无符号整数
-                                                                                    // (uint64_t)(uint32_t)idt：将 32 位的地址再转换为 64 位的无符号整数 uint64_t( 这一步是为后续的位移操作提供足够的空间。)，转换后，高 32 位是 0 ，低 32 位存储的是 idt 的 32 位地址
-                                                                                    // <<16 ：将这个 64 位整数左移 16 位
+    uint64_t idt_operand = ((sizeof(idt) - 1) | ((uint64_t)(uint32_t)idt << 16)); // (uint32_t)idt：先将指针地址强制转换为 32 位的无符号整数
+                                                                                  // (uint64_t)(uint32_t)idt：将 32 位的地址再转换为 64 位的无符号整数 uint64_t( 这一步是为后续的位移操作提供足够的空间。)，转换后，高 32 位是 0 ，低 32 位存储的是 idt 的 32 位地址
+                                                                                  // <<16 ：将这个 64 位整数左移 16 位
     asm volatile("lidt %0"
                  :
                  : "m"(idt_operand));
