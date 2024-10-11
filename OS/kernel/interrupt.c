@@ -5,6 +5,13 @@
 #include "interrupt.h"
 #include "print.h"
 
+#define EFLAGS_IF 0x00000200 // 定义了当 eflages 寄存器中的 IF 位为 1 时，标志中断已开启的值
+
+// 通过嵌入汇编代码来获取 eflags 寄存器中的中断标志位 IF 的状态
+// EFLAG_VAR 用来存储 eflags 的变量
+#define GET_EFLAGS(EFLAGS_VAR) asm volatile("pushfl; \
+                                             popl %0" : "=g"(EFLAGS_VAR))
+
 #define IDT_DESC_CNT 0x21 // 目前总共支持的中断数 ( 33 个中断处理程序 )
 
 #define PIC_M_CTRL 0x20 // 主片的控制端口是 0x20
@@ -210,4 +217,86 @@ void idt_init()
                  : "m"(idt_operand));
 
     put_str("idt_init done\n");
+}
+
+/**
+ * @brief 获取当前的中断状态
+ *
+ * 通过获取 eflags 寄存器中的 IF 位来判断当前是否是开中断状态，
+ * 如果 IF 为 1，则表示开中断，否则为关中断。
+ *
+ * @return enum intr_status 函数返回中断状态，INTR_ON 表示开中断，INTR_OFF 表示关中断。
+ */
+enum intr_status intr_get_status()
+{
+    uint32_t eflags = 0;
+    GET_EFLAGS(eflags);
+    // 检测 eflags 中的 IF 位是否为 1
+    // EFLAGS_IF 的值是 0x00000200，它对应的二进制形式是 0000 0000 0000 0000 0000 0010 0000 0000，这意味着只检测第 9 位
+    return (EFLAGS_IF & eflags) ? INTR_ON : INTR_OFF;
+}
+
+/**
+ * @brief 开启中断，并返回之前的中断状态
+ *
+ * 该函数负责将中断打开，即执行 sti 指令将 eflags 中的 IF 位置 1，
+ * 同时返回执行该操作前的中断状态。
+ *
+ * @return enum intr_status 函数返回执行 sti 前的中断状态。
+ */
+enum intr_status intr_enable()
+{
+    enum intr_status old_status;
+    if (INTR_ON == intr_get_status())
+    {
+        old_status = INTR_ON;
+        return old_status;
+    }
+    else
+    {
+        old_status = INTR_OFF;
+        asm volatile("sti"); // 开中断，sti 指令将 IF 位置 1
+        return old_status;
+    }
+}
+
+/**
+ * @brief 关闭中断，并返回之前的中断状态
+ *
+ * 该函数负责将中断关闭，即执行 cli 指令将 eflags 中的 IF 位置 0，
+ * 同时返回执行该操作前的中断状态。
+ *
+ * @param void 该函数不接收任何参数。
+ *
+ * @return enum intr_status 函数返回执行 cli 前的中断状态。
+ */
+enum intr_status intr_disable()
+{
+    enum intr_status old_status;
+    if (INTR_ON == intr_get_status())
+    {
+        old_status = INTR_ON;
+        asm volatile("cli" : : : "memory"); // 关中断，cli 指令将 IF 位置 0
+        return old_status;
+    }
+    else
+    {
+        old_status = INTR_OFF;
+        return old_status;
+    }
+}
+
+/**
+ * @brief 设置中断状态
+ * 
+ * 该函数负责根据参数 status 的值设置中断状态，
+ * 如果 status 为 INTR_ON 则打开中断，否则关闭中断。
+ * 
+ * @param enum intr_status status 指定要设置的中断状态。
+ * 
+ * @return enum intr_status 函数返回设置后的中断状态。
+ */
+enum intr_status intr_set_status(enum intr_status status)
+{
+    return (status & INTR_ON) ? intr_enable() : intr_disable();
 }
