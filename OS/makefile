@@ -8,7 +8,7 @@ ASFLAGS = -f elf
 CFLAGS = -m32 $(LIB) -c -fno-builtin -fno-stack-protector
 LDFLAGS = -m elf_i386 -z noexecstack -Ttext $(ENTRY_POINT) -e main -Map $(BUILD_DIR)/kernel.map
 OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/init.o $(BUILD_DIR)/interrupt.o \
-       $(BUILD_DIR)/time.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/print.o \
+       $(BUILD_DIR)/time.o $(BUILD_DIR)/bitmap.o $(BUILD_DIR)/memory.o $(BUILD_DIR)/string.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/print.o \
        $(BUILD_DIR)/debug.o
 
 ############### c 代码编译 ###############
@@ -22,6 +22,15 @@ $(BUILD_DIR)/interrupt.o: kernel/interrupt.c
 	$(CC) $(CFLAGS) $< -o $@
 
 $(BUILD_DIR)/time.o: device/time.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/bitmap.o: lib/kernel/bitmap.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/memory.o: kernel/memory.c
+	$(CC) $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/string.o: lib/string.c
 	$(CC) $(CFLAGS) $< -o $@
 
 $(BUILD_DIR)/debug.o: kernel/debug.c
