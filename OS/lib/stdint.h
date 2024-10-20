@@ -13,4 +13,8 @@ typedef unsigned long long int uint64_t;
 #define NULL ((void *)0)
 #endif
 
+typedef int bool;
+#define true 1
+#define false 0
+
 #endif

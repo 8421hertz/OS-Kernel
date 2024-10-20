@@ -2,6 +2,7 @@
 #define __THREAD_THREAD_H
 
 #include "stdint.h"
+#include "list.h"
 
 /* 自定义通用函数类型，它将在很多线程函数中作为形参类型 */
 // thread_func：这是新的类型别名，用来代指一个函数类型。它是用户定义的名称，表示任意符合这个签名的函数的类型。
@@ -97,11 +98,44 @@ struct task_struct
     enum task_status status; // 线程状态
     char name[16];           // 记录任务（线程/进程）的名字
     uint8_t priority;        // 线程优先级（用于决定进程/线程的时间片，及被调度到处理器上后的运行时间）
-    uint32_t stack_magic;    // 栈的边界标记，用于检测栈的溢出（由于 0 级栈和 PCB 是在同一页，栈位于页的顶端并向下扩展，因此担心压栈过程中会把 PCB 中的信息给覆盖，所以
-                             // 所以每次在线程或进程调度时要判断是否触及到了进程信息的边界，也就是判断 stack_magic 的值是否为初始化的内容）
-                             // stack_magic 是一个魔数
+
+    /*
+     * ticks 和上面的 priority 要配合使用，priority 任务优先级体现在任务执行的时间片上，优先级越高，每次任务被调度上处理器后执行的时间片就越长
+     * ticks 为每次被调度到处理器上执行的时间滴答数(任务时间片)，每次时钟中断都会将当前任务的 ticks 减 1，当减到 0 时就被换下处理器，
+     * 调度器把 priority 重新赋值给 ticks，这样当此线程下一次又被调度时，将再次在处理器上运行 ticks 个时间片
+     */
+    uint8_t ticks;
+
+    uint32_t elapsed_ticks; // 记录任务在处理器上运行的 ticks 时钟滴答数，从开始执行，到运行结束所经历的总时钟数
+
+    /******** 以下两个标签仅仅是加入队列时用的，将来从队列中把它们取出来时，还需要再通过 offset 宏与 elem2entry 宏的 "反操作"，实现从 &general_tag 到 &thread 的地址转换，将它们还原成线程的 PCB 地址后才能使用（这两个线程 "标签" 定义在 thread.c 中） ********
+
+    /*
+     * ① 就绪队列中的"标签"节点
+     * 它是线程的"标签"，当线程被加入到就绪队列 thread_ready_list 或其他等待队列中时，就把该线程 PCB 中 general_tag 的地址加入队列
+     * general_tag 的作用是用于线程在一般的队列中的结点
+     *		一个 struct list_elem 类型的节点只有一对前驱和后继指针，它只能被加入到一个队列
+    */
+    struct list_elem general_tag;
+
+    /**
+     * ② 全部队列中的"标签"节点
+     * 在咱们的系统中，为管理所有线程，还存在一个全部线程队列 thread_all_list，因此线程还需要另外一个"标签"，即 all_list_tag
+     * all_list_tag 的作用是用于线程队列 thread_all_list 中的结点
+     * 专门用于线程被加入全部线程队列 thread_all_list 时使用
+     */
+    struct list_elem all_list_tag;
+
+    // 线程与进程最大的区别是进程独享自己的地址空间（有自己的页表），而线程共享所有在进程的地址空间，即线程无页表
+    uint32_t *pgdir; // 进程自己页表的虚拟地址（如果该任务为线程，则 pgdir 为 NULL）
+                     // 页表加载时还是要被转换成物理地址的
+
+    uint32_t stack_magic; // 栈的边界标记，用于检测栈的溢出（由于 0 级栈和 PCB 是在同一页，栈位于页的顶端并向下扩展，因此担心压栈过程中会把 PCB 中的信息给覆盖，所以
+                          // 所以每次在线程或进程调度时要判断是否触及到了进程信息的边界，也就是判断 stack_magic 的值是否为初始化的内容）
+                          // stack_magic 是一个魔数
 };
 
+struct task_struct *running_thread();
 struct task_struct *thread_start(char *name,
                                  int prio,
                                  thread_func function,
@@ -109,5 +143,6 @@ struct task_struct *thread_start(char *name,
 void init_thread(struct task_struct *pthread, char *name, int prio);
 void thread_create(struct task_struct *pthread, thread_func function, void *func_arg);
 static void kernel_thread(thread_func *function, void *func_arg);
+static void make_main_thread(void);
 
 #endif
