@@ -18,6 +18,7 @@ enum intr_status            // 中断状态
 static void pic_init(void);
 static void idt_desc_init(void);
 static void general_intr_handler(uint8_t vec_nr);
+void register_handler(uint8_t vector_no, intr_handler function);
 static void exception_init(void);
 void idt_init();
 enum intr_status intr_get_status();

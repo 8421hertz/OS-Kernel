@@ -4,6 +4,8 @@
 #include "io.h"
 #include "interrupt.h"
 #include "print.h"
+#include "thread.h"
+#include "time.h"
 
 #define EFLAGS_IF 0x00000200 // 定义了当 eflages 寄存器中的 IF 位为 1 时，标志中断已开启的值
 
@@ -120,7 +122,7 @@ static void idt_desc_init(void)
 }
 
 /**
- * general_intr_handler - 通用中断处理函数，一般用在异常出现时的处理
+ * general_intr_handler - 通用中断处理函数，一般用在异常出现时的处理（即某个中断源没有中断处理程序时才用它来代替）
  *
  * 该函数用于处理一般的中断，通常在异常情况下调用。
  * 函数会处理特定的中断向量号，如伪中断 ( 由 IRQ7 和 IRQ15 产生 )，这些中断 ( 无法通过 IMR 寄存器屏蔽，这里的处理规则是直接通过 return 返回 ) 不需要进一步处理。
@@ -133,14 +135,63 @@ static void idt_desc_init(void)
  */
 static void general_intr_handler(uint8_t vec_nr)
 {
+    // 0x2f 是从片 8259A 上最后一个 irq 引脚，保留
     if (vec_nr == 0x27 || vec_nr == 0x2f) // 0x27 和 0x2f 中断向量号对应的 IRQ7 和 IRQ15
     {
-        return;
+        // 0x27 是从片 8259A 上的最后一个 IRQ 引脚，保留
+        return; // IRQ7 和 IRQ15 会产生伪中断（spurious interrupt），无需处理
     }
 
-    put_str("int vector: 0x");
-    put_int(vec_nr);
-    put_char('\n');
+    /* 将光标置为 0，从屏幕左上角清出一片(4行)打印异常信息的区域，方便阅读 */
+    // 另外，程序运行时最后输出的有用信息一般都是在屏幕最下方
+    set_cursor(0);
+    int cursor_pos = 0;
+    while (cursor_pos < 320) // 4行（4*80=320个字符）
+    {
+        put_char(' ');
+        cursor_pos++;
+    }
+
+    set_coursor(0); // 设置光标为屏幕左上角（这样异常信息将在刚刚清空的地方输出）
+    put_str("!!!!!!!!     exception message begin     !!!!!!!!\n");
+
+    set_cursor(88);             // 从第 2 行 第 8个字符开始打印
+    put_str(intr_name[vec_nr]); // 打印异常名
+    // 如果程序运行过程中出现异常 Pagefault（只有虚拟地址，没有分配物理地址与之形成映射） 时，将会打印出导致 Pagefault 出现的虚拟地址
+    if (vec_nr == 14) // 若为 Pagefault，将缺失的地址打印出来并悬停（导致 Pagefault 的虚拟地址会被存放到控制寄存器 CR2 中）
+    {
+        int page_fault_vaddr = 0;
+        // cr2 是存放造成 page_fault 的虚拟地址的寄存器
+        asm("movl %%cr2, %0" : "=r"(page_fault_vaddr));
+        put_str("\npage fault addr is ");
+        put_int(page_fault_vaddr);
+    }
+
+    put_str("\n!!!!!!!!     exception message end     !!!!!!!!\n");
+    // 能进入中断处理程序就表示已经处于关中断的情况下
+    // 不会出现调度进程的情况。故下面的死循环不会再被中断
+
+    while (1)
+        ;
+
+    // put_str("int vector: 0x");
+    // put_int(vec_nr);
+    // put_char('\n');
+}
+
+/**
+ * register_handler - 在中断处理程序数组第 vector_no 个元素中注册安装中断处理程序 function
+ * @vector_no: 要注册中断处理程序的中断向量号。
+ * @function: 要为指定向量号注册的中断处理函数。
+ *
+ * 该函数用于在中断描述符表（IDT）的指定中断向量号位置注册中断处理程序。
+ * 当触发与该向量号对应的中断时，所注册的处理程序函数将会被调用。
+ * 该函数将存储在 idt_table 数组中，数组索引为中断向量号。
+ */
+void register_handler(uint8_t vector_no, intr_handler function)
+{
+    /* idt_table 数组中的函数是在进入中断与处理程序后根据中断向量号调用的（见 kernel/kernel.S 的 call[idt_table + %1*4]） */
+    idt_table[vector_no] = function;
 }
 
 /**
@@ -288,12 +339,12 @@ enum intr_status intr_disable()
 
 /**
  * @brief 设置中断状态
- * 
+ *
  * 该函数负责根据参数 status 的值设置中断状态，
  * 如果 status 为 INTR_ON 则打开中断，否则关闭中断。
- * 
+ *
  * @param enum intr_status status 指定要设置的中断状态。
- * 
+ *
  * @return enum intr_status 函数返回设置后的中断状态。
  */
 enum intr_status intr_set_status(enum intr_status status)
