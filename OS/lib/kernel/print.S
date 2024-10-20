@@ -92,7 +92,7 @@ put_char:
     inc bx
     mov byte [gs:bx], 0x07          ; 黑底白字
     shr bx, 1                       ; 将 bx 变回光标值
-    jmp .set_cursor                 ; 跳转设置（更新）光标 bx 值
+    jmp set_cursor                 ; 跳转设置（更新）光标 bx 值
 
 .put_other:
 ;;;;;;;;;;;;;;;;;; 将字符输出到屏幕缓冲区 0xc00b8000 中 ;;;;;;;;;;;;;;;;;
@@ -105,7 +105,7 @@ put_char:
     ; 判断光标位置是否已经超过（或等于）屏幕缓冲区范围 (2000)
         ; 如果超过（或等于）了，则执行换行和滚屏操作
     cmp bx, 2000
-    jl .set_cursor
+    jl set_cursor
 
 ; 将光标置于下一行行首（由于是效仿 Linux， Linux 中 \n 表示下一行的行首，所以本系统中把 \n 和 \r 都处理为 Linux 中 \n 的意思）
 .is_line_feed:                      ; 是换行符 LF(\n)
@@ -143,7 +143,8 @@ put_char:
     loop .cls
     mov bx, 1920                    ; 把坐标值重新设置为最后一行行首
 
-.set_cursor:
+global set_cursor
+set_cursor:
 ;;;;;;;;;;;;;;;;;; 设置 ( 更新 ) 坐标值 ;;;;;;;;;;;;;;;;;
 ; 将光标设为 bx 值
     ; 先设置高 8 位
