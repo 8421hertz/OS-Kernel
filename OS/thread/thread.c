@@ -218,6 +218,11 @@ void schedule()
     struct task_struct *next = elem2entry(struct task_struct, general_tag, thread_tag);
     next->status = TASK_RUNNING; // 设置新线程的状态为运行中（表示新线程可以上处理器了）
     switch_to(cur, next);   // 切换新线程（切换寄存器映像）———— 将线程 cur 的上下文保护好，再将线程 next 的上下文装在到处理器，实现任务切换
+
+    
+    // 执行完 switch.S 后，此处内核栈已经切换为 next 被调度任务的内核栈（此处的线程是被调度后的线程）
+    // 然后返回到 intr_timer_handler 时钟中断处理函数，然后返回到 kernel.S 中的 jmp intr_exit，从而恢复任务的全部寄存器映像，之后通过 iretd 指令退出中断，线程的用户任务被完全彻底地恢复
+    // （利用恢复第一部分用户任务进入中断前保存的的全部寄存器上下文环境彻底恢复 next 被调度线程的用户任务（执行完中断处理程序后，会返回到 kernel.S 中的 intr_exit（恢复用户程序的上下文环境）））
 }
 
 /**
