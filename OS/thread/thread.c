@@ -4,6 +4,7 @@
 #include "global.h"
 #include "memory.h"
 #include "debug.h"
+#include "interrupt.h"
 
 #define PG_SIZE 4096 // PCB 的大小为 4K
 
@@ -182,6 +183,41 @@ struct task_struct *thread_start(char *name,
     list_append(&thread_all_list, &thread->general_tag); // 将线程"标签"节点加入到全局队列中
 
     return thread; // 返回线程 PCB 的指针
+}
+
+/* 实现任务调度 */
+void schedule()
+{
+    // 确保在调度时中断已经关闭
+    ASSERT(intr_get_status() == INTR_OFF);
+
+    // 获取当前正在运行的线程 PCB 指针
+    struct task_struct *cur = running_thread();
+    if (cur->status == TASK_RUNNING)
+    {
+        // 如果当前线程 cur 的时间片 ticks 到了，将其加入到就绪队列的尾部
+        ASSERT(!elem_find(&thread_ready_list, &cur->general_tag));
+        list_append(&thread_ready_list, &cur->general_tag);
+        // 将当前线程的时间片 ticks 重置为其优先级 priority（为了下次运行时不会马上被换下处理器）
+        cur->ticks = cur->priority;
+        cur->status = TASK_READY; // 将状态设置为就绪
+    }
+    else
+    {
+        // 如果线程因为某事件阻塞被换下处理器，不需要将其加入到就绪队列，因为当前线程并不在就绪队列中（需要事件完成后才能继续上 CPU 运行）
+        // （比如对 0 值的信号就行 P 操作就会让线程阻塞，到同步机制时会介绍）
+    }
+
+    // 确保就绪队列中有现成可供调度
+    ASSERT(!list_empty(&thread_ready_list));
+    thread_tag = NULL; // 清空全局变量 thread_tag，避免上次的残留值影响（由于是全局变量）
+
+    // 从就绪队列 thread_ready_list 中弹出第一个线程，准备将其调度到 CPU 上
+    thread_tag = list_pop(&thread_ready_list);
+    // thread_tag 并不是线程，它仅仅是线程 PCB 中的 general_tag 或 all_list_tag，要获得线程的信息，必须将其转换成 PCB 指针才行，因此我们用到了宏 elem2entry
+    struct task_struct *next = elem2entry(struct task_struct, general_tag, thread_tag);
+    next->status = TASK_RUNNING; // 设置新线程的状态为运行中（表示新线程可以上处理器了）
+    switch_to(cur, next);   // 切换新线程（切换寄存器映像）———— 将线程 cur 的上下文保护好，再将线程 next 的上下文装在到处理器，实现任务切换
 }
 
 /**
