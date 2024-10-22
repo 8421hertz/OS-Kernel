@@ -24,9 +24,9 @@ int main(void)
     // put_int((uint32_t)addr);
     // put_str("\n");
 
-    thread_start("k_thread_a", 31, k_thread_a, "argA ");
-    // 按理说，屏幕上打印的字符串“argA”的数量大约为“argB”的 4 倍
-    thread_start("k_thread_b", 8, k_thread_b, "argB ");
+    // thread_start("k_thread_a", 31, k_thread_a, "argA ");
+    // // 按理说，屏幕上打印的字符串“argA”的数量大约为“argB”的 4 倍
+    // thread_start("k_thread_b", 8, k_thread_b, "argB ");
 
     intr_enable(); // 打开中断, 使时钟中断起作用（通过 intr_enable 将中断打开，目前我们在 8259A 中只打开了时钟中断，因此，时钟中断对应的中断处理程序会引发调度。）
 
