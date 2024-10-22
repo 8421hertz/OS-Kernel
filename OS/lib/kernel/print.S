@@ -123,7 +123,7 @@ put_char:
     cmp bx, 2000
 
 .is_line_feed_end:
-    jl .set_cursor                  ; 如果光标值 < 2000 ，则更新坐标
+    jl set_cursor                  ; 如果光标值 < 2000 ，则更新坐标
 
 .roll_screen:                       ; 若超出屏幕大小，开始滚屏
 ;;;;;;;;;;;;;;;;;; 处理滚屏 ;;;;;;;;;;;;;;;;;

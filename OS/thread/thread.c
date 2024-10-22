@@ -5,6 +5,8 @@
 #include "memory.h"
 #include "debug.h"
 #include "interrupt.h"
+#include "print.h"
+#include "list.h"
 
 #define PG_SIZE 4096 // PCB 的大小为 4K
 
@@ -15,7 +17,7 @@ struct list thread_all_list;         // ③ 所有线程的队列（如果线程
 static struct list_elem *thread_tag; // ④ 用于保存队列中的线程节点（队列中的节点不是线程的 PCB，而是线程 PCB 中的 tag，即 general_tag 或 all_list_tag）
                                      // 对线程的管理都是基于线程 PCB 的，因此必须要将 tag 转换成 PCB，在转换过程中需要记录 tag 的值
 
-// extern void switch_to(struct task_struct *cur, struct task_strct *mext);
+extern void switch_to(struct task_struct *cur, struct task_struct *next);
 
 /**
  * @brief 返回取当前线程的 PCB 指针
@@ -53,7 +55,7 @@ struct task_struct *running_thread()
 static void kernel_thread(thread_func *function, void *func_arg)
 {
     /* 执行 function 前要开中断（任务调度的保证）, 避免后续的时钟中断被屏蔽，导致无法调度其他线程 */
-    intr_disable();
+    intr_enable();
     function(func_arg); // 执行传入的函数 function，并传递参数 func_arg
 }
 
@@ -115,7 +117,7 @@ void thread_create(struct task_struct *pthread, thread_func function, void *func
  */
 void init_thread(struct task_struct *pthread, char *name, int prio)
 {
-    memset(pthread, 0, sizeof(pthread)); // 将线程所在的线程控制块(PCB)全部清0 ———— 一页
+    memset(pthread, 0, sizeof(*pthread)); // 将线程所在的线程控制块(PCB)全部清0 ———— 一页
     strcpy(pthread->name, name);         // 设置线程名称
     if (pthread == main_thread)          // 判断是否为主线程
     {
@@ -180,7 +182,7 @@ struct task_struct *thread_start(char *name,
 
     /* 确保线程"标签"节点没在全局队列 thread_all_list 中 */
     ASSERT(!elem_find(&thread_all_list, &thread->all_list_tag));
-    list_append(&thread_all_list, &thread->general_tag); // 将线程"标签"节点加入到全局队列中
+    list_append(&thread_all_list, &thread->all_list_tag); // 将线程"标签"节点加入到全局队列中
 
     return thread; // 返回线程 PCB 的指针
 }
@@ -245,4 +247,20 @@ static void make_main_thread(void)
     /* 主线程不在就绪队列中（正在运行），不需要加入到就绪队列，加入到全局队列中就行 */
     ASSERT(!elem_find(&thread_all_list, &main_thread->all_list_tag));
     list_append(&thread_all_list, &main_thread->all_list_tag); // 加入全局队列队尾
+}
+
+/**
+ * 初始化线程环境
+ */
+void thread_init(void)
+{
+    put_str("thread_init start\n");
+    // 通过 list_init 函数将就绪队列 thread_ready_list 和全部队列 thread_all_list 初始化
+    // 初始化的内容就是将队列置空，也就是使队列首尾相接
+    list_init(&thread_ready_list);
+    list_init(&thread_all_list);
+
+    /* 将当前已运行的主函数 main 封装为线程（本质上就是在其 PCB 中写入了线程信息） */
+    make_main_thread();
+    put_str("thread_init done\n");
 }

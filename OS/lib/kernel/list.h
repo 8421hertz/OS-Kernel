@@ -3,6 +3,10 @@
 #include "global.h"
 #include "stdint.h"
 
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
+
 /* elem2entry 和 offset 是为了将节点元素转换成实际元素项 */
 // (int)(&((struct_type *)0)->member)为结构体成员 member 在结构体中的偏移量
 #define offset(struct_type, member) (int)(&((struct_type *)0)->member)

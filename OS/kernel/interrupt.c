@@ -152,7 +152,7 @@ static void general_intr_handler(uint8_t vec_nr)
         cursor_pos++;
     }
 
-    set_coursor(0); // 设置光标为屏幕左上角（这样异常信息将在刚刚清空的地方输出）
+    set_cursor(0); // 设置光标为屏幕左上角（这样异常信息将在刚刚清空的地方输出）
     put_str("!!!!!!!!     exception message begin     !!!!!!!!\n");
 
     set_cursor(88);             // 从第 2 行 第 8个字符开始打印

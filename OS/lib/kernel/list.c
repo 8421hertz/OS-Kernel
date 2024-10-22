@@ -36,11 +36,14 @@ void list_insert_before(struct list_elem *before, struct list_elem *elem)
     // 由于队列是公共资源，对于它的修改一定要保证为原子操作，所以需要关闭中断
     enum intr_status old_status = intr_disable(); // 旧中断状态用变量 old_status 保存
 
+    /* 将 before 前驱元素的后继元素更新为 elem，暂时使 before 脱离链表*/
+    before->prev->next = elem;
+
     elem->prev = before->prev; // 将 elem 的前驱指向 before 的前驱
     elem->next = before;       // 将 elem 的后继指向 before
 
-    before->prev->next = elem; // 更新 before 的前驱结点的后继为 elem
-    before->prev = elem;       // 更新 before 的前驱为 elem
+    before->prev = elem; // 更新 before 的前驱结点的后继为 elem
+
 
     intr_set_status(old_status); // 恢复中断状态
 }
