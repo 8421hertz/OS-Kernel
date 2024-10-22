@@ -118,8 +118,8 @@ void thread_create(struct task_struct *pthread, thread_func function, void *func
 void init_thread(struct task_struct *pthread, char *name, int prio)
 {
     memset(pthread, 0, sizeof(*pthread)); // 将线程所在的线程控制块(PCB)全部清0 ———— 一页
-    strcpy(pthread->name, name);         // 设置线程名称
-    if (pthread == main_thread)          // 判断是否为主线程
+    strcpy(pthread->name, name);          // 设置线程名称
+    if (pthread == main_thread)           // 判断是否为主线程
     {
         /* 由于主线程 main 已经在内核中运行，所以将其状态设为 TASK_RUNNING */
         pthread->status = TASK_RUNNING;
@@ -219,9 +219,8 @@ void schedule()
     // thread_tag 并不是线程，它仅仅是线程 PCB 中的 general_tag 或 all_list_tag，要获得线程的信息，必须将其转换成 PCB 指针才行，因此我们用到了宏 elem2entry
     struct task_struct *next = elem2entry(struct task_struct, general_tag, thread_tag);
     next->status = TASK_RUNNING; // 设置新线程的状态为运行中（表示新线程可以上处理器了）
-    switch_to(cur, next);   // 切换新线程（切换寄存器映像）———— 将线程 cur 的上下文保护好，再将线程 next 的上下文装在到处理器，实现任务切换
+    switch_to(cur, next);        // 切换新线程（切换寄存器映像）———— 将线程 cur 的上下文保护好，再将线程 next 的上下文装在到处理器，实现任务切换
 
-    
     // 执行完 switch.S 后，此处内核栈已经切换为 next 被调度任务的内核栈（此处的线程是被调度后的线程）
     // 然后返回到 intr_timer_handler 时钟中断处理函数，然后返回到 kernel.S 中的 jmp intr_exit，从而恢复任务的全部寄存器映像，之后通过 iretd 指令退出中断，线程的用户任务被完全彻底地恢复
     // （利用恢复第一部分用户任务进入中断前保存的的全部寄存器上下文环境彻底恢复 next 被调度线程的用户任务（执行完中断处理程序后，会返回到 kernel.S 中的 intr_exit（恢复用户程序的上下文环境）））
@@ -247,6 +246,67 @@ static void make_main_thread(void)
     /* 主线程不在就绪队列中（正在运行），不需要加入到就绪队列，加入到全局队列中就行 */
     ASSERT(!elem_find(&thread_all_list, &main_thread->all_list_tag));
     list_append(&thread_all_list, &main_thread->all_list_tag); // 加入全局队列队尾
+}
+
+/**
+ * @brief 当前线程将自己阻塞，标志其状态为 stat.（使其进不去就绪队列，睡眠状态）
+ *
+ * 当前运行线程的 status 必然是 TASK_RUNNING，此状态的线程在调度器中会被重新加到就绪队列中。
+ * 由于要实现的功能是线程阻塞，也就是当前线程暂时不能运行。达到这一目的的原理是：
+ * 		让调度器 schedule 无法再调度它，也就是当前线程不能再被加到就绪队列 thread_ready_list 中。
+ *
+ * 回顾: 在调度器 schedule 函数中，它会对当前线程的 status 判断。若当前线程的 status 为 TASK_RUNNING，这说明当前线程
+ *       只是时间片到了，此次调度并不是由于阻塞而引发的，因此会将其重新加入到就绪队列中并置其状态为TASK_READY。
+ *		 为了不再让其被调度，必须将其 status 置为非 TASK_RUNNING，也就是函数 thread_block 的参数 stat（线程因为某事件阻塞被换下处理器，不需要将其加入到就绪队列）
+ *
+ * 线程通过将当前线程的状态标记为不可运行态 stat，实现线程的阻塞。
+ * stat 取值为 TASK_BLOCKED、TASK_WAITING、TASK_HANGING，当前线程会被从调度中剔除，不再被调度器选中，直到被解除阻塞。
+ *
+ * @param stat 线程的状态，取值范围为不可运行态 (TASK_BLOCKED, TASK_WAITING, TASK_HANGING)
+ */
+void thread_block(enum task_status stat)
+{
+    /* stat 取值为 TASK_BLOKCED, TASK_WAITING, TASK_HANGING，只有这三种状态才会被调度 */
+    ASSERT(((stat == TASK_BLOCKED) ||
+            (stat == TASK_WAITING) ||
+            (stat == TASK_HANGING)));
+    enum intr_status old_status = intr_disable();      // 关中断
+    struct task_struct *cur_thread = running_thread(); // 获取当前线程
+    cur_thread->status = stat;                         // 置当前线程的状态为 stat
+    schedule();                                        // 将当前线程换下处理器
+                                                       // 如果线程因为某事件阻塞被换下处理器，不需要将其加入到就绪队列，因为当前线程并不在就绪队列中（需要事件完成后才能继续上 CPU 运行）
+    /* 待当前线程被解除阻塞后才继续运行下面的 intr_set_status */
+    // 由于已经切换线程，下面的中断恢复代码本次便没有机会执行了，只有当线程被唤醒后才会被直行到（当前线程会去执行它自己的代码，当然也有可能是被唤醒后的线程执行下面的语句）
+    intr_set_status(old_status);
+}
+
+/**
+ * @brief 将线程 pthread 解除阻塞（唤醒某线程，被阻塞的线程已无法运行，无法自己唤醒自己，必须被其它线程唤醒）
+ *
+ * thread_unblock 是由当前运行的线程调用的，由它实施唤醒动作（唤醒某被阻塞线程）
+ *
+ * 将已阻塞的线程重新加入调度队列，使其可以再次被调度器调度。通常由其他线程调用，解除阻塞状态，并将其状态标记为 TASK_READY。
+ *
+ * @param pthread 待解除阻塞的线程
+ */
+void thread_unblock(struct task_struct *pthread)
+{
+    enum intr_status old_status = intr_disable();
+    // 调试待解除阻塞的线程的状态是否为不可运行态
+    ASSERT((pthread->status == TASK_BLOCKED) || (pthread->status == TASK_WAITING) || (pthread->status == TASK_HANGING));
+    if (pthread->status != TASK_READY)
+    {
+        ASSERT(!elem_find(&thread_ready_list, &pthread->general_tag));
+        if (elem_find(&thread_ready_list, &pthread->general_tag))
+        {
+            PANIC("thread_unblock: blocked thread in ready_list\n");
+        }
+        // 通过 list_push 将阻塞的线程重新添加到就绪队列中（队首），因此保证了这个睡了很久的线程能被优先调度（使其尽快得到调度）
+        list_push(&thread_ready_list, &pthread->general_tag);
+        // 更改此线程的状态为就绪态
+        pthread->status = TASK_READY;
+    }
+    intr_set_status(old_status);
 }
 
 /**

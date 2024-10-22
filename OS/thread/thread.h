@@ -146,5 +146,7 @@ static void kernel_thread(thread_func *function, void *func_arg);
 void schedule();
 static void make_main_thread(void);
 void thread_init(void);
+void thread_block(enum task_status stat);
+void thread_unblock(struct task_struct *pthread);
 
 #endif
