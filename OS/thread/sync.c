@@ -51,7 +51,7 @@ void sema_down(struct semaphore *psema)
     while (psema->value == 0) // 若信号量的 value 为 0， 表示锁已被别人持有
     {
         // 既然当前线程已处于活动中，也就是状态为 TASK_RUNNING，当前线程就不会出现在此信号量的等待队列中，否则重复添加的话会破坏队列
-        ASSERT(elem_find(&psema->waiters, &running_thread()->general_tag));
+        ASSERT(!elem_find(&psema->waiters, &running_thread()->general_tag));
         /* 当前正在运行的线程不应该在信号量的 waiters 队列中 */
         if (elem_find(&psema->waiters, &running_thread()->general_tag))
         {
