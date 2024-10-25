@@ -46,7 +46,7 @@ typedef int bool;
  *      操作控制键与其他案件配合时是先被按下的，因此，每次在接收一个按键时，需要查看上一次是否有按下相关的操作控制键。
  *      所以得记录操作控制键在之前是否被按下了，也就是将操作控制键的当前状态记录在某个全局变量中
  */
-#define shift_1_make 0x2a
+#define shift_l_make 0x2a
 #define shift_r_make 0x36
 #define alt_l_make 0x38
 #define alt_r_make 0xe038
@@ -74,7 +74,7 @@ static bool ctrl_status, shift_status, alt_status, caps_lock_status, ext_scancod
 static char keymap[][2] = {
     /* 扫描码未与 shift 组合 */
     /* ---------------------------------- */
-    /* 0x00 */ {0, 0},
+    /* 0x00 */ {0, 0}, // 没有通码为 0 的键，因此数组第 0 个一维数组 keymap[0][]，咱们为其定义两个 0 值
     /* 0x01 */ {esc, esc},
     /* 0x02 */ {'1', '!'},
     /* 0x03 */ {'2', '@'},
@@ -137,17 +137,175 @@ static char keymap[][2] = {
 };
 
 /**
- * 键盘中断处理程序
+ * @brief 键盘中断处理程序（每次只能处理一个字节，所以当扫描码中是多字节或者有组合键时，要定义额外的全局变量来记录它们曾经被按下过）
  *
- * 每收到一个中断，就通过 put_char('k') 打印字符 'k'，然后再调用 inb(KBD_BUF_PORT) 读取 8042 的输出缓冲区寄存器
+ * 每收到一个中断，就调用 inb(KBD_BUF_PORT) 读取 8042 的输出缓冲区寄存器
+ *
+ * ctrl_status、shift_status 和 caps_lock_status 是定义在代码 10-12-1 结尾处的三个全局变量，它们分别记录 <ctrl>、<shift> 和 <caps lock> 三个键的状态，
+ * 值为 true 表示按下，值为 false 表示弹起。每次这三个键被按下或被弹起时，都将记录在这些变量中，
+ * 对这三个键的处理是在 intr_keyboard_handler 中对通码和断码各自的处理代码块的结尾处
+ * 最多支持 <ctrl>+<shift>+<alt> 三个控制键形式的组合键
+ *
+ * 该函数处理键盘中断事件，通过处理扫描码识别按键状态并输出字符。
+ * 根据接收到的扫描码判断按键是否为控制键（如 Ctrl、Shift、Alt）或字符键，并根据 Shift 和 Caps Lock 状态将字符转换为对应的大小写输出。
+ *
+ * @return void
  */
 static void intr_keyboard_handler(void)
 {
-    // put_char('k');   // 每击键一次，就会进行一次键盘中断
-    /* 必须要读取输出缓冲区寄存器中的键盘扫描码，否则 8042 不再继续响应键盘中断 */
-    uint8_t scancode = inb(KBD_BUF_PORT);
-    put_int(scancode); // 输出键盘扫描码
-    return;
+    /* 在这次中断发生前的上一次中断，判断以下任意三个键是否被按下并且尚未松开 */
+    bool ctrl_down_last = ctrl_status;
+    bool shift_down_last = shift_status;
+    bool caps_locak_last = caps_lock_status;
+
+    bool break_code; // 用于记录是否为断码
+
+    /* 必须要从键盘缓冲区寄存器 0x60 端口读取键盘扫描码，否则 8042 不再继续响应键盘中断 */
+    uint16_t scancode = inb(KBD_BUF_PORT);
+
+    /**
+     * 目前只支持主键盘区上的键，因此只存在一个 0xe0 作为扫描码前缀的情况。若扫描码为 0xe0，表示该键的扫描码多于一个字节，将其标记为扩展扫描码
+     *
+     * 若扫描码 scancode 是以 0xe0 开头的，表示此键的按下将产生多个扫描码，我们向上结构把此码赋给 ext_scancode，等待下一个扫描码进来
+     *		只要发现扫描码为 0xe0，就表示此键的扫描码多于一个字节，后面还有扫描码，因此将 ext_scancode 标记置为 true 后执行 return 返回
+     */
+    if (scancode == 0xe0)
+    {
+        ext_scancode = true; // 打开 e0 标记，等待下一个后半部分的扩展扫描码
+        return;
+    }
+
+    /* 若上一个扫描码是以 0xe0 开头的，将此次扫描码与其合并为完整的扫描码 */
+    if (ext_scancode)
+    {
+        scancode = ((0xe000) | scancode); // 合并为完整扫描码
+        ext_scancode = false;             // 关闭扩展扫描码 0xe0 标记
+    }
+
+    break_code = ((scancode & 0x0080) != 0); // 判断是否为断码
+
+    /* 接下俩要判断此次按键（扫描码）对应的字符是什么，因为我们的扫描码对应的字符定义在二维数组 keymap 中，通码是此数组的索引，所以需要将断码还原成通码 */
+    if (break_code) // 如果是断码（按键弹起时产生的扫描码），就进入断码的处理代码块中
+    {
+        /* 由于 ctrl_r 和 alt_r 的 make_code 和 break_code 都是两字节，所以可用下面的方法获取 make_code，多字节的扫描码都以 0xe0 开头 */
+        uint16_t make_code = (scancode &= 0xFF7F); // 清除 break_code 断码的第 7 位，得到通码 make_code（按键按下时的扫描码）
+                                                   // 断码的第 7 位为 1，通码的第 7 位为 0
+
+        // 下面用 "通码" 来处理键盘的 "弹起"，加引号的目的是想强调，咱们还是在断码的处理流程中，处理的是按键的弹起，只是用通用码更为方便判断是哪个键
+
+        /**
+         * 若是任意以下三个键（左或右）弹起了，将状态置为 false，表示此操作控制键被弹起了（虽然现在是在用通码在判断，但现在处于处理断码的代码块中，此代码块就是判断是哪个键被弹起了）
+         *
+         * 一般情况下这三个键在键盘上是左右各一个，所以无论按下哪个都表示按下了统一功能的控制键，因此无论弹起哪个也都表示弹起了同一功能的控制键
+         *		一般是先松开控制键，再松开字符键，所以这三个键的状态变量 ctrl_status、shift_status 和 alt_status 并不是本次使用，是供下次判断组合键用的，本次只是记录是否松开了它们。
+         *		下次在进入键盘中断时，再 intr_keyboard_handler 的开头通过 ctrl_down_last = ctrl_status 获取上一次 ctrl 键是否处于弹起的状态
+         */
+        if (make_code == ctrl_l_make || make_code == ctrl_r_make)
+        {
+            ctrl_status = false;
+        }
+        else if (make_code == shift_l_make || make_code == shift_r_make)
+        {
+            shift_status = false;
+        }
+        else if (make_code == alt_l_make || make_code == alt_r_make)
+        {
+            alt_status = false;
+        }
+
+        return; // 直接返回，结束此次的中断处理程序
+    }
+    /**
+     * 来到这里，说明不是断码，而是通码，这里的判断是保证我们只处理这些数组中定义了的键，以及右 alt 和 ctrl。
+     *      由于我们最大支持的通码为 0x3a，即只支持到 <caps_locak> 键，因此要防止越界
+     *      将来也要支持 ctrl 和 alt 相关的快捷键，但 <R-ctrl> 好 <R-alt> 的通码是以 0xe0 开头的扩展扫描码，范围不在 0x3b 之内，所以加了 "或" 判断
+     *
+     * 主要根据通码和 shift 键是否按下的情况，再数组 keymap 中找到按键对应的字符
+     */
+    else if ((scancode > 0x00 && scancode < 0x3b) || (scancode == alt_r_make) || (scancode == ctrl_r_make))
+    {
+        /* 无论 <capslock> 键和 <shift> 键怎样配合，其最终效果等同于 <shift> 键要么按下，要么松开，所以只要确定 shift 的值便确定了转换结果 */
+        // 判断是否与 shift 键组合，用来在二维数组中索引对应的字符
+        bool shift = false; // shift 用来索引按键所在一维数组中的两个元素，默认为 false（没有按下）
+
+        if ((scancode < 0x0e) || (scancode == 0x29) ||
+            (scancode == 0x1a) || (scancode == 0x1b) ||
+            (scancode == 0x2b) || (scancode == 0x27) ||
+            (scancode == 0x33) || (scancode == 0x34) || (scancode == 0x35))
+        {
+            /****** 代表两个字符的键（双字符键） ******
+            0x0e 数字'0'~'9', 字符'-', 字符'='
+            0x29 字符'`'
+            0x1a 字符'['
+            0x1b 字符']'
+            0x2b 字符'\\'
+            0x27 字符';'
+            0x33 字符','
+            0x34 字符'.'
+            0x35 字符'/'
+            *****************************/
+            if (shift_down_last) // 在这次中断发生前的上一次中断，shift 按键被按下并且未松开
+            {
+                // 如果同时按下了 shift 键
+                shift = true;
+            }
+        }
+        else
+        {
+            // 默认认为字母键
+            if (shift_down_last && caps_locak_last)
+            {
+                // 如果 shift 和 capslock 同时按下，抵消了大写功能，所以 shift 为 false
+                shift = false;
+            }
+            else if (shift_down_last || caps_locak_last)
+            {
+                // 如果 shift 和 capslock 任意被按下，大写功能被开启
+                shift = true;
+            }
+            else
+            {
+                // shift 和 capslock 都没有按下
+                shift = false;
+            }
+        }
+
+        // 将扫描码的高字节置为 0，主要针对高字节是 e0 的扩展扫描码
+        uint8_t index = (scancode & 0x00FF);
+        char cur_char = keymap[index][shift]; // 在数组中找到对应的字符
+
+        /* 只处理 ASCII 码不为 0 的键（部分控制字符是不可见的，其值为 0，没法显示它们） */
+        if (cur_char)
+        {
+            put_char(cur_char);
+            return;
+        }
+
+        /* 记录本次是否按下了下面几类控制键之一，供下次键入时判断组合键 */
+        // 如果 cur_char 为 0，根据目前 keymap 的定义，表示它们的操作控制键是 <ctrl>、<shift>、<alt>、<capslock> 之一（因为它们的 ASCII 码值为 0），需要判断它们中的哪一个被按下了
+        // 按下了就将其状态置为 true，供下次判断组合键（这三个控制键变量不是本次使用，是供下次判断组合键用的，本次只是记录是否按下了它们。下次再进入中断时，在 intr_keyboard_handler 的开头通过 ctrl_down_last = ctrl_status 获取上一次 ctrl 键是否按下）
+        if (scancode == ctrl_l_make || scancode == ctrl_r_make)
+        {
+            ctrl_status = true;
+        }
+        else if (scancode == shift_l_make || scancode == shift_r_make)
+        {
+            shift_status = true;
+        }
+        else if (scancode == alt_l_make || scancode == alt_r_make)
+        {
+            alt_status = true;
+        }
+        else if (scancode == caps_lock_make) // <caps locak> 键有些特殊，它不像 <ctrl>、<shift>、<alt> 那样 "按下时" 开启，"弹起时" 关闭
+                                             // <caps lock> 生效于 每一次完整的击键操作，即 "按下再弹起" 开启，下一次的 "按下再弹起" 则关闭，相当于状态取反（开启时按下此键是关闭；关闭时按下此键是开启）
+        {
+            caps_lock_status = !caps_lock_status;
+        }
+        else
+        {
+            put_str("unknown key\n"); // 咱们支持的键是有限的，对于哪些通码在 0x3b 以上的按键，在 else 代码中执行 put_str("unknown key\n") 提示是未知按键
+        }
+    }
 }
 
 /* 键盘中断处理程序初始化（将其加入到 idt_table 中） */
