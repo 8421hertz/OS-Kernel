@@ -14,7 +14,7 @@
 #define GET_EFLAGS(EFLAGS_VAR) asm volatile("pushfl; \
                                              popl %0" : "=g"(EFLAGS_VAR))
 
-#define IDT_DESC_CNT 0x21 // 目前总共支持的中断数 ( 33 个中断处理程序 )
+#define IDT_DESC_CNT 0x30 // 目前总共支持的中断数 (IR0~IR15 ———— 0x20~0x2F)
 
 #define PIC_M_CTRL 0x20 // 主片的控制端口是 0x20
 #define PIC_M_DATA 0x21 // 主片的数据端口是 0x21
@@ -40,6 +40,7 @@ char *intr_name[IDT_DESC_CNT]; // 中断异常名数组 ———— 用来记�
 // idt_table[i] 是一个存储函数指针的数组
 intr_handler idt_table[IDT_DESC_CNT]; // 定义中断处理程序数组，在 kernel.S 中定义的 intrXXentry 只是中断处理程序的入口，最终调用的是 ide_table 中的处理程序
 
+// intr_entry_table 中全都是 intr%1entry 中断入口程序
 extern intr_handler intr_entry_table[IDT_DESC_CNT]; // 声明引用定义在 kernel.S 中的中断处理函数入口地址数组
                                                     // 中断描述符地址数组 ( 仅仅表明地址，用于修饰 intr_entry_table，定义在 interrupt.h 中 )
                                                     // 中断向量号 * 8 + IDTR = 中断门描述符地址
@@ -72,9 +73,14 @@ static void pic_init(void)
     outb(PIC_S_DATA, 0x02);
     outb(PIC_S_DATA, 0x01);
 
-    /* 利用 OCW1 设置 IMR 寄存器只放行时钟中断 ( 也就是目前只接收时钟产生的中断 ) */
-    outb(PIC_M_DATA, 0xFE);
-    outb(PIC_S_DATA, 0xFF);
+    // /* 利用 OCW1 设置 IMR 寄存器只放行时钟中断 ( 也就是目前只接收时钟产生的中断 ) */
+    // outb(PIC_M_DATA, 0xFE);
+    // outb(PIC_S_DATA, 0xFF);
+
+    // 初始化主片
+    outb(PIC_M_DATA, 0xFD); // 操作主片上的中断屏蔽寄存器(IMR)，只打开了键盘中断，即位 1 为 0，其它位都为 1，因此写入的值为 0xFD（1111_1101）
+    // 初始化从片
+    outb(PIC_S_DATA, 0xFF); // 从片上的中断屏蔽寄存器(IMR)，屏蔽了从片上的所有中断，所以值为 0xFF
 
     put_str("   pic_init done\n");
 }
