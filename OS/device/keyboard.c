@@ -37,7 +37,7 @@ typedef int bool;
 #define shift_r_char char_invisible
 #define alt_l_char char_invisible
 #define alt_r_char char_invisible
-#define caps_locak_char char_invisible
+#define caps_lock_char char_invisible
 
 /**
  * 预定义操作控制键的扫描码（控制字符的通码和断码）
@@ -53,14 +53,88 @@ typedef int bool;
 #define ctrl_l_make 0x1d
 #define ctrl_r_make 0xe01d
 #define ctrl_r_break 0xe09d
-#define caps_locak_make 0x3a
+#define caps_lock_make 0x3a
 
 /* 定义以下 变量操作控制键状态全局变量，表示是否是按下的状态（true 表示按下；false 表示弹起），ext_scancode 用于记录 makecode 是否以 0xe0 开头（扩展字符扫描码） */
 static bool ctrl_status, shift_status, alt_status, caps_lock_status, ext_scancode;
 
-
-
-
+/**
+ * 以通码 make_code 为索引的二维数组
+ *
+ * 主要定义了与 Shift 组合时的字符效果，数组范围是 0~0x3A（目前所支持的主键盘区的按键范围，图 10-15）
+ *
+ * 主键盘区主要是与上档键 Shift 配合使用，如果之前已经按下了 Shift 键并且按住不松手：
+ * 		① 当在主键盘区中按下数字键时，这表示按键为数字上面的符号，如 '2' 变成了 '@'
+ *		② 当在主键盘区中按下字母键时，这表示按键为大写字母，如 'a' 变成了 'A'
+ * 有无 Shift 键参与时按键效果是不同的，所以我们主要以这种和 Shift 键配合的情况来建立通码到对应字符的映射（这里的字符就是值字符的 ASCII 码）
+ *
+ * keymap 中每个数组元素都是一维数组，代表某个按键在有无 Shift 键配合的情况下实现
+ * 		如，若不按下 Shift 的情况下按下 'a'，keymap[0x1e][0]='a'；按下 Shift，keymap[0x1e][1]='A'
+ */
+static char keymap[][2] = {
+    /* 扫描码未与 shift 组合 */
+    /* ---------------------------------- */
+    /* 0x00 */ {0, 0},
+    /* 0x01 */ {esc, esc},
+    /* 0x02 */ {'1', '!'},
+    /* 0x03 */ {'2', '@'},
+    /* 0x04 */ {'3', '#'},
+    /* 0x05 */ {'4', '$'},
+    /* 0x06 */ {'5', '%'},
+    /* 0x07 */ {'6', '^'},
+    /* 0x08 */ {'7', '&'},
+    /* 0x09 */ {'8', '*'},
+    /* 0x0A */ {'9', '('},
+    /* 0x0B */ {'0', ')'},
+    /* 0x0C */ {'-', '_'},
+    /* 0x0D */ {'=', '+'},
+    /* 0x0E */ {backspace, backspace},
+    /* 0x0F */ {tab, tab},
+    /* 0x10 */ {'q', 'Q'},
+    /* 0x11 */ {'w', 'W'},
+    /* 0x12 */ {'e', 'E'},
+    /* 0x13 */ {'r', 'R'},
+    /* 0x14 */ {'t', 'T'},
+    /* 0x15 */ {'y', 'Y'},
+    /* 0x16 */ {'u', 'U'},
+    /* 0x17 */ {'i', 'I'},
+    /* 0x18 */ {'o', 'O'},
+    /* 0x19 */ {'p', 'P'},
+    /* 0x1A */ {'[', '{'},
+    /* 0x1B */ {']', '}'},
+    /* 0x1C */ {enter, enter},
+    /* 0x1D */ {ctrl_l_char, ctrl_l_char},
+    /* 0x1E */ {'a', 'A'},
+    /* 0x1F */ {'s', 'S'},
+    /* 0x20 */ {'d', 'D'},
+    /* 0x21 */ {'f', 'F'},
+    /* 0x22 */ {'g', 'G'},
+    /* 0x23 */ {'h', 'H'},
+    /* 0x24 */ {'j', 'J'},
+    /* 0x25 */ {'k', 'K'},
+    /* 0x26 */ {'l', 'L'},
+    /* 0x27 */ {';', ':'},
+    /* 0x28 */ {'\'', '"'},
+    /* 0x29 */ {'`', '~'},
+    /* 0x2A */ {shift_l_char, shift_l_char},
+    /* 0x2B */ {'\\', '|'},
+    /* 0x2C */ {'z', 'Z'},
+    /* 0x2D */ {'x', 'X'},
+    /* 0x2E */ {'c', 'C'},
+    /* 0x2F */ {'v', 'V'},
+    /* 0x30 */ {'b', 'B'},
+    /* 0x31 */ {'n', 'N'},
+    /* 0x32 */ {'m', 'M'},
+    /* 0x33 */ {',', '<'},
+    /* 0x34 */ {'.', '>'},
+    /* 0x35 */ {'/', '?'},
+    /* 0x36 */ {shift_r_char, shift_r_char},
+    /* 0x37 */ {'*', '*'},
+    /* 0x38 */ {alt_l_char, alt_l_char},
+    /* 0x39 */ {' ', ' '},
+    /* 0x3A */ {caps_lock_char, caps_lock_char}
+    /* 其他按键暂不处理 */
+};
 
 /**
  * 键盘中断处理程序
