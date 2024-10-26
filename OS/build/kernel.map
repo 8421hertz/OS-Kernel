@@ -87,6 +87,14 @@ Discarded input sections
                 0x00000000        0x4 build/sync.o
  .note.GNU-stack
                 0x00000000        0x0 build/sync.o
+ .group         0x00000000        0x8 build/ioqueue.o
+ .group         0x00000000        0x8 build/ioqueue.o
+ .text.__x86.get_pc_thunk.ax
+                0x00000000        0x4 build/ioqueue.o
+ .text.__x86.get_pc_thunk.bx
+                0x00000000        0x4 build/ioqueue.o
+ .note.GNU-stack
+                0x00000000        0x0 build/ioqueue.o
 
 Memory Configuration
 
@@ -112,6 +120,7 @@ LOAD build/switch.o
 LOAD build/keyboard.o
 LOAD build/console.o
 LOAD build/sync.o
+LOAD build/ioqueue.o
                 [!provide]                        PROVIDE (__executable_start = SEGMENT_START ("text-segment", 0x8048000))
                 0x080480f4                        . = (SEGMENT_START ("text-segment", 0x8048000) + SIZEOF_HEADERS)
 
@@ -183,7 +192,7 @@ LOAD build/sync.o
 .plt.sec
  *(.plt.sec)
 
-.text           0xc0001500     0x2c7a
+.text           0xc0001500     0x3047
  *(.text.unlikely .text.*_unlikely .text.unlikely.*)
  *(.text.exit .text.exit.*)
  *(.text.startup .text.startup.*)
@@ -268,22 +277,28 @@ LOAD build/sync.o
  *fill*         0xc00039d1        0xf 
  .text          0xc00039e0       0x15 build/switch.o
                 0xc00039e0                switch_to
- .text          0xc00039f5      0x2d7 build/keyboard.o
-                0xc0003c7c                keyboard_init
- .text          0xc0003ccc      0x119 build/console.o
-                0xc0003ccc                console_init
-                0xc0003cf7                console_acquire
-                0xc0003d22                console_release
-                0xc0003d4d                console_put_str
-                0xc0003d7d                console_put_char
-                0xc0003db5                console_put_int
- .text          0xc0003de5      0x395 build/sync.o
-                0xc0003de5                sema_init
-                0xc0003e1f                lock_init
-                0xc0003e59                sema_down
-                0xc0003f75                sema_up
-                0xc000403f                lock_acquire
-                0xc00040c5                lock_release
+ .text          0xc00039f5      0x31d build/keyboard.o
+                0xc0003cb0                keyboard_init
+ .text          0xc0003d12      0x119 build/console.o
+                0xc0003d12                console_init
+                0xc0003d3d                console_acquire
+                0xc0003d68                console_release
+                0xc0003d93                console_put_str
+                0xc0003dc3                console_put_char
+                0xc0003dfb                console_put_int
+ .text          0xc0003e2b      0x395 build/sync.o
+                0xc0003e2b                sema_init
+                0xc0003e65                lock_init
+                0xc0003e9f                sema_down
+                0xc0003fbb                sema_up
+                0xc0004085                lock_acquire
+                0xc000410b                lock_release
+ .text          0xc00041c0      0x387 build/ioqueue.o
+                0xc00041c0                ioqueue_init
+                0xc000423a                ioq_full
+                0xc00042f0                ioq_wait
+                0xc00043a7                ioq_getchar
+                0xc0004474                ioq_putchar
  *(.gnu.warning)
 
 .fini
@@ -294,7 +309,7 @@ LOAD build/sync.o
                 0xc0005000                        . = ALIGN (CONSTANT (MAXPAGESIZE))
                 0xc0005000                        . = SEGMENT_START ("rodata-segment", (ALIGN (CONSTANT (MAXPAGESIZE)) + (. & (CONSTANT (MAXPAGESIZE) - 0x1))))
 
-.rodata         0xc0005000      0xa25
+.rodata         0xc0005000      0xad0
  *(.rodata .rodata.* .gnu.linkonce.r.*)
  .rodata        0xc0005000        0xd build/main.o
  .rodata        0xc000500d        0xa build/init.o
@@ -311,6 +326,8 @@ LOAD build/sync.o
  .rodata        0xc00058b7       0x36 build/keyboard.o
  *fill*         0xc00058ed        0x3 
  .rodata        0xc00058f0      0x135 build/sync.o
+ *fill*         0xc0005a25        0x3 
+ .rodata        0xc0005a28       0xa8 build/ioqueue.o
 
 .rodata1
  *(.rodata1)
@@ -319,33 +336,35 @@ LOAD build/sync.o
  *(.eh_frame_hdr)
  *(.eh_frame_entry .eh_frame_entry.*)
 
-.eh_frame       0xc0005a28      0xad8
+.eh_frame       0xc0005ad0      0xbf4
  *(.eh_frame)
- .eh_frame      0xc0005a28       0x54 build/main.o
- .eh_frame      0xc0005a7c       0x24 build/init.o
+ .eh_frame      0xc0005ad0       0x54 build/main.o
+ .eh_frame      0xc0005b24       0x24 build/init.o
                                  0x50 (size before relaxing)
- .eh_frame      0xc0005aa0      0x1a4 build/interrupt.o
+ .eh_frame      0xc0005b48      0x1a4 build/interrupt.o
                                 0x1d0 (size before relaxing)
- .eh_frame      0xc0005c44       0x94 build/time.o
+ .eh_frame      0xc0005cec       0x94 build/time.o
                                  0xd4 (size before relaxing)
- .eh_frame      0xc0005cd8       0x1c build/debug.o
+ .eh_frame      0xc0005d80       0x1c build/debug.o
                                  0x48 (size before relaxing)
- .eh_frame      0xc0005cf4      0x13c build/memory.o
+ .eh_frame      0xc0005d9c      0x13c build/memory.o
                                 0x17c (size before relaxing)
- .eh_frame      0xc0005e30       0x90 build/bitmap.o
+ .eh_frame      0xc0005ed8       0x90 build/bitmap.o
                                  0xbc (size before relaxing)
- .eh_frame      0xc0005ec0      0x168 build/string.o
+ .eh_frame      0xc0005f68      0x168 build/string.o
                                 0x194 (size before relaxing)
- .eh_frame      0xc0006028      0x174 build/thread.o
+ .eh_frame      0xc00060d0      0x174 build/thread.o
                                 0x1b4 (size before relaxing)
- .eh_frame      0xc000619c      0x148 build/list.o
+ .eh_frame      0xc0006244      0x148 build/list.o
                                 0x188 (size before relaxing)
- .eh_frame      0xc00062e4       0x68 build/keyboard.o
+ .eh_frame      0xc000638c       0x68 build/keyboard.o
                                  0xa8 (size before relaxing)
- .eh_frame      0xc000634c       0xd8 build/console.o
+ .eh_frame      0xc00063f4       0xd8 build/console.o
                                 0x118 (size before relaxing)
- .eh_frame      0xc0006424       0xdc build/sync.o
+ .eh_frame      0xc00064cc       0xdc build/sync.o
                                 0x11c (size before relaxing)
+ .eh_frame      0xc00065a8      0x11c build/ioqueue.o
+                                0x15c (size before relaxing)
  *(.eh_frame.*)
 
 .sframe
@@ -460,6 +479,7 @@ LOAD build/sync.o
  .data          0xc00080e0       0x76 build/keyboard.o
  .data          0xc0008156        0x0 build/console.o
  .data          0xc0008156        0x0 build/sync.o
+ .data          0xc0008156        0x0 build/ioqueue.o
 
 .data1
  *(.data1)
@@ -468,7 +488,7 @@ LOAD build/sync.o
                 0xc0008158                        . = ALIGN (ALIGNOF (NEXT_SECTION))
                 0xc0008160                        __bss_start = .
 
-.bss            0xc0008160      0x388
+.bss            0xc0008160      0x3fc
  *(.dynbss)
  *(.bss .bss.* .gnu.linkonce.b.*)
  .bss           0xc0008160        0x0 build/main.o
@@ -490,17 +510,20 @@ LOAD build/sync.o
                 0xc0008494                thread_ready_list
                 0xc00084a4                thread_all_list
  .bss           0xc00084b8        0x0 build/list.o
- .bss           0xc00084b8       0x14 build/keyboard.o
- .bss           0xc00084cc       0x1c build/console.o
- .bss           0xc00084e8        0x0 build/sync.o
+ *fill*         0xc00084b8        0x8 
+ .bss           0xc00084c0       0x80 build/keyboard.o
+                0xc00084c0                kbd_buf
+ .bss           0xc0008540       0x1c build/console.o
+ .bss           0xc000855c        0x0 build/sync.o
+ .bss           0xc000855c        0x0 build/ioqueue.o
  *(COMMON)
-                0xc00084e8                        . = ALIGN ((. != 0x0)?0x4:0x1)
-                0xc00084e8                        . = ALIGN (0x4)
-                0xc00084e8                        . = SEGMENT_START ("ldata-segment", .)
-                0xc00084e8                        . = ALIGN (0x4)
-                0xc00084e8                        _end = .
+                0xc000855c                        . = ALIGN ((. != 0x0)?0x4:0x1)
+                0xc000855c                        . = ALIGN (0x4)
+                0xc000855c                        . = SEGMENT_START ("ldata-segment", .)
+                0xc000855c                        . = ALIGN (0x4)
+                0xc000855c                        _end = .
                 [!provide]                        PROVIDE (end = .)
-                0xc00084e8                        . = DATA_SEGMENT_END (.)
+                0xc000855c                        . = DATA_SEGMENT_END (.)
 
 .stab
  *(.stab)
@@ -536,6 +559,7 @@ LOAD build/sync.o
  .comment       0x00000026       0x27 build/keyboard.o
  .comment       0x00000026       0x27 build/console.o
  .comment       0x00000026       0x27 build/sync.o
+ .comment       0x00000026       0x27 build/ioqueue.o
 
 .gnu.build.attributes
  *(.gnu.build.attributes .gnu.build.attributes.*)
@@ -552,7 +576,7 @@ LOAD build/sync.o
 .debug_sfnames
  *(.debug_sfnames)
 
-.debug_aranges  0x00000000      0x200
+.debug_aranges  0x00000000      0x220
  *(.debug_aranges)
  .debug_aranges
                 0x00000000       0x20 build/main.o
@@ -586,6 +610,8 @@ LOAD build/sync.o
                 0x000001c0       0x20 build/console.o
  .debug_aranges
                 0x000001e0       0x20 build/sync.o
+ .debug_aranges
+                0x00000200       0x20 build/ioqueue.o
 
 .debug_pubnames
                 0x00000000        0x0
@@ -597,7 +623,7 @@ LOAD build/sync.o
  .debug_pubnames
                 0x00000000        0x0 build/switch.o
 
-.debug_info     0x00000000     0x2c0f
+.debug_info     0x00000000     0x33c1
  *(.debug_info .gnu.linkonce.wi.*)
  .debug_info    0x00000000       0xd3 build/main.o
  .debug_info    0x000000d3       0xd2 build/init.o
@@ -612,11 +638,12 @@ LOAD build/sync.o
  .debug_info    0x00001733      0x6ec build/thread.o
  .debug_info    0x00001e1f      0x353 build/list.o
  .debug_info    0x00002172       0x6d build/switch.o
- .debug_info    0x000021df      0x252 build/keyboard.o
- .debug_info    0x00002431      0x326 build/console.o
- .debug_info    0x00002757      0x4b8 build/sync.o
+ .debug_info    0x000021df      0x4b2 build/keyboard.o
+ .debug_info    0x00002691      0x326 build/console.o
+ .debug_info    0x000029b7      0x4b8 build/sync.o
+ .debug_info    0x00002e6f      0x552 build/ioqueue.o
 
-.debug_abbrev   0x00000000     0x1262
+.debug_abbrev   0x00000000     0x14ac
  *(.debug_abbrev)
  .debug_abbrev  0x00000000       0xb5 build/main.o
  .debug_abbrev  0x000000b5       0x93 build/init.o
@@ -631,11 +658,12 @@ LOAD build/sync.o
  .debug_abbrev  0x00000ae7      0x269 build/thread.o
  .debug_abbrev  0x00000d50      0x171 build/list.o
  .debug_abbrev  0x00000ec1       0x1d build/switch.o
- .debug_abbrev  0x00000ede      0x107 build/keyboard.o
- .debug_abbrev  0x00000fe5      0x11e build/console.o
- .debug_abbrev  0x00001103      0x15f build/sync.o
+ .debug_abbrev  0x00000ede      0x182 build/keyboard.o
+ .debug_abbrev  0x00001060      0x11e build/console.o
+ .debug_abbrev  0x0000117e      0x15f build/sync.o
+ .debug_abbrev  0x000012dd      0x1cf build/ioqueue.o
 
-.debug_line     0x00000000     0x16ad
+.debug_line     0x00000000     0x1883
  *(.debug_line .debug_line.* .debug_line_end)
  .debug_line    0x00000000       0x6a build/main.o
  .debug_line    0x0000006a       0x88 build/init.o
@@ -650,9 +678,10 @@ LOAD build/sync.o
  .debug_line    0x00000ecc      0x234 build/thread.o
  .debug_line    0x00001100      0x151 build/list.o
  .debug_line    0x00001251       0x49 build/switch.o
- .debug_line    0x0000129a      0x1ae build/keyboard.o
- .debug_line    0x00001448       0xbc build/console.o
- .debug_line    0x00001504      0x1a9 build/sync.o
+ .debug_line    0x0000129a      0x1dc build/keyboard.o
+ .debug_line    0x00001476       0xbc build/console.o
+ .debug_line    0x00001532      0x1a9 build/sync.o
+ .debug_line    0x000016db      0x1a8 build/ioqueue.o
 
 .debug_frame    0x00000000        0x0
  *(.debug_frame)
@@ -660,22 +689,23 @@ LOAD build/sync.o
  .debug_frame   0x00000000        0x0 build/print.o
  .debug_frame   0x00000000        0x0 build/switch.o
 
-.debug_str      0x00000000      0x9fb
+.debug_str      0x00000000      0xa75
  *(.debug_str)
- .debug_str     0x00000000      0x9fb build/main.o
+ .debug_str     0x00000000      0xa75 build/main.o
                                 0x137 (size before relaxing)
- .debug_str     0x000009fb      0x14d build/init.o
- .debug_str     0x000009fb      0x2f0 build/interrupt.o
- .debug_str     0x000009fb      0x2b2 build/time.o
- .debug_str     0x000009fb      0x163 build/debug.o
- .debug_str     0x000009fb      0x35e build/memory.o
- .debug_str     0x000009fb      0x1da build/bitmap.o
- .debug_str     0x000009fb      0x192 build/string.o
- .debug_str     0x000009fb      0x3fc build/thread.o
- .debug_str     0x000009fb      0x20f build/list.o
- .debug_str     0x000009fb      0x216 build/keyboard.o
- .debug_str     0x000009fb      0x2d4 build/console.o
- .debug_str     0x000009fb      0x335 build/sync.o
+ .debug_str     0x00000a75      0x14d build/init.o
+ .debug_str     0x00000a75      0x2f0 build/interrupt.o
+ .debug_str     0x00000a75      0x2b2 build/time.o
+ .debug_str     0x00000a75      0x163 build/debug.o
+ .debug_str     0x00000a75      0x35e build/memory.o
+ .debug_str     0x00000a75      0x1da build/bitmap.o
+ .debug_str     0x00000a75      0x192 build/string.o
+ .debug_str     0x00000a75      0x3fc build/thread.o
+ .debug_str     0x00000a75      0x20f build/list.o
+ .debug_str     0x00000a75      0x384 build/keyboard.o
+ .debug_str     0x00000a75      0x2d4 build/console.o
+ .debug_str     0x00000a75      0x335 build/sync.o
+ .debug_str     0x00000a75      0x336 build/ioqueue.o
 
 .debug_loc      0x00000000        0x0
  *(.debug_loc)
@@ -708,35 +738,37 @@ LOAD build/sync.o
  *(.debug_addr)
 
 .debug_line_str
-                0x00000000      0x18f
+                0x00000000      0x1aa
  *(.debug_line_str)
  .debug_line_str
-                0x00000000      0x18f build/main.o
+                0x00000000      0x1aa build/main.o
                                  0x8f (size before relaxing)
  .debug_line_str
-                0x0000018f       0xc4 build/init.o
+                0x000001aa       0xc4 build/init.o
  .debug_line_str
-                0x0000018f       0xa9 build/interrupt.o
+                0x000001aa       0xa9 build/interrupt.o
  .debug_line_str
-                0x0000018f       0xc0 build/time.o
+                0x000001aa       0xc0 build/time.o
  .debug_line_str
-                0x0000018f       0x98 build/debug.o
+                0x000001aa       0x98 build/debug.o
  .debug_line_str
-                0x0000018f       0xb2 build/memory.o
+                0x000001aa       0xb2 build/memory.o
  .debug_line_str
-                0x0000018f       0xa5 build/bitmap.o
+                0x000001aa       0xa5 build/bitmap.o
  .debug_line_str
-                0x0000018f       0x81 build/string.o
+                0x000001aa       0x81 build/string.o
  .debug_line_str
-                0x0000018f       0xcc build/thread.o
+                0x000001aa       0xcc build/thread.o
  .debug_line_str
-                0x0000018f       0x98 build/list.o
+                0x000001aa       0x98 build/list.o
  .debug_line_str
-                0x0000018f       0xad build/keyboard.o
+                0x000001aa       0xd5 build/keyboard.o
  .debug_line_str
-                0x0000018f       0xb0 build/console.o
+                0x000001aa       0xb0 build/console.o
  .debug_line_str
-                0x0000018f       0xb3 build/sync.o
+                0x000001aa       0xb3 build/sync.o
+ .debug_line_str
+                0x000001aa       0xcd build/ioqueue.o
 
 .debug_loclists
  *(.debug_loclists)
@@ -748,10 +780,10 @@ LOAD build/sync.o
  *(.debug_names)
 
 .debug_rnglists
-                0x00000000       0x17
+                0x00000000       0x22
  *(.debug_rnglists)
  .debug_rnglists
-                0x00000000       0x17 build/keyboard.o
+                0x00000000       0x22 build/keyboard.o
 
 .debug_str_offsets
  *(.debug_str_offsets)

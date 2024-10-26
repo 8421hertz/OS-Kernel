@@ -3,6 +3,7 @@
 #include "interrupt.h"
 #include "io.h"
 #include "global.h"
+#include "ioqueue.h"
 
 typedef int bool;
 #define true 1
@@ -13,6 +14,8 @@ typedef int bool;
  * ② 当数据已从 8048 发到 8042 时，0x60 端口的作用是输出缓冲区，此时 CPU 应该用 in 指令从 8042 的 0x60 端口（输出缓冲区寄存器）读取 8048 的输出结果。
  */
 #define KBD_BUF_PORT 0x60 // 键盘 buffer 缓冲区寄存器端口号为 0x60（8042 输入和输出缓冲区寄存器的端口）
+
+struct ioqueue kbd_buf; // 定义键盘环形缓冲区队列
 
 /**
  * 预定义的按键 ASCII 码（用转义字符定义部分控制字符）
@@ -277,7 +280,12 @@ static void intr_keyboard_handler(void)
         /* 只处理 ASCII 码不为 0 的键（部分控制字符是不可见的，其值为 0，没法显示它们） */
         if (cur_char)
         {
-            put_char(cur_char);
+            /* 若 kbd_buf 中未满并且加入的 cur_char 不为 0，则将其加入到缓冲区 kbd_buf 中 */
+            if (!ioq_full(&kbd_buf))
+            {
+                put_char(cur_char); // 临时的（为了演示缓冲区写满的情况，理论上缓冲区只支持 63 个字节，多输入的字符将不会响应）
+                ioq_putchar(&kbd_buf, cur_char);
+            }
             return;
         }
 
@@ -312,6 +320,7 @@ static void intr_keyboard_handler(void)
 void keyboard_init()
 {
     put_str("keyboard init start\n");
+    ioqueue_init(&kbd_buf); // 初始化 ioq 环形缓冲队列
     register_handler(0x21, intr_keyboard_handler);
     put_str("keyboard init done\n");
 }
